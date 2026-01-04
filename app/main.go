@@ -17,6 +17,9 @@ func main() {
 			fmt.Println("Error reading input:", err)
 			return
 		}
+		if word == "exit" {
+			break
+		}
 		fmt.Println(word + ": command not found")
 	}
 }
