@@ -10,11 +10,13 @@ var _ = fmt.Print
 func main() {
 	// TODO: Uncomment the code below to pass the first stage
 	var word string
-	fmt.Print("$ ")
-	_, err := fmt.Scan(&word)
-	if err != nil {
-		fmt.Println("Error reading input:", err)
-		return
+	for {
+		fmt.Print("$ ")
+		_, err := fmt.Scan(&word)
+		if err != nil {
+			fmt.Println("Error reading input:", err)
+			return
+		}
+		fmt.Println(word + ": command not found")
 	}
-	fmt.Println(word + ": command not found")
 }
