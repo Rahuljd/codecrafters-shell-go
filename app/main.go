@@ -16,5 +16,5 @@ func main() {
 		fmt.Println("Error reading input:", err)
 		return
 	}
-	fmt.Println(word, ": command not found")
+	fmt.Println(word + ": command not found")
 }
