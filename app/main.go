@@ -8,7 +8,6 @@ import (
 )
 
 func main() {
-	// TODO: Uncomment the code below to pass the first stage
 	for {
 		fmt.Print("$ ")
 		reader := bufio.NewReader(os.Stdin)
@@ -45,34 +44,67 @@ func printStringArray(strArr []string) {
 	}
 }
 
-/* gemini
+/* chatgpt optimized
+
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"strings"
+)
+
+var builtins = map[string]bool{
+	"exit": true,
+	"echo": true,
+	"type": true,
+}
 
 func main() {
-    scanner := bufio.NewScanner(os.Stdin) // Scanner is often preferred over Reader for line-by-line
-    for {
-        fmt.Print("$ ")
-        if !scanner.Scan() {
-            break
-        }
-        input := scanner.Text()
-        words := strings.Fields(input)
+	reader := bufio.NewReader(os.Stdin)
 
-        if len(words) == 0 {
-            continue
-        }
+	for {
+		fmt.Print("$ ")
 
-        command := words[0]
-        args := words[1:] // Efficient slicing
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			fmt.Println("Error reading input:", err)
+			return
+		}
 
-        switch command {
-        case "exit":
-            return
-        case "echo":
-            fmt.Println(strings.Join(args, " ")) // More efficient than manual looping
-        default:
-            fmt.Printf("%s: command not found\n", command)
-        }
-    }
+		words := strings.Fields(input)
+		if len(words) == 0 {
+			continue // ignore empty input
+		}
+
+		cmd := words[0]
+		args := words[1:]
+
+		switch cmd {
+
+		case "exit":
+			return
+
+		case "echo":
+			fmt.Println(strings.Join(args, " "))
+
+		case "type":
+			if len(args) == 0 {
+				continue
+			}
+
+			if builtins[args[0]] {
+				fmt.Println(args[0], "is a shell builtin")
+			} else {
+				fmt.Println(strings.Join(args, " "), ": not found")
+			}
+
+		default:
+			fmt.Println(cmd, ": command not found")
+		}
+	}
 }
+
 
 */
