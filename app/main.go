@@ -21,7 +21,9 @@ func main() {
 		if words[0] == "exit" {
 			break
 		} else if words[0] == "type" {
-			fmt.Println(words[1] + " is a shell builtin")
+			if words[1] == "type" || words[1] == "exit" || words[1] == "echo" {
+				fmt.Println(words[1] + " is a shell builtin")
+			}
 		} else if words[0] == "echo" {
 			printStringArray(words[1:])
 			fmt.Println()
