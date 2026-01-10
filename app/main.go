@@ -52,7 +52,7 @@ func main() {
 				fmt.Println(args[0] + ": not found")
 			}
 		default:
-			fmt.Println(cmd, ": command not found")
+			fmt.Println(cmd + ": command not found")
 		}
 	}
 }
