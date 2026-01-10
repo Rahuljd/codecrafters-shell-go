@@ -59,7 +59,7 @@ func main() {
 }
 
 func runExternal(command string, args []string) {
-	path, err := exec.LookPath(command)
+	_, err := exec.LookPath(command)
 	if err != nil {
 		fmt.Println(command + ": command not found")
 		return
