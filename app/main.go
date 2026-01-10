@@ -37,7 +37,7 @@ func main() {
 		case "exit":
 			return
 		case "echo":
-			fmt.Println(strings.Join(args, ""))
+			fmt.Println(strings.Join(args, " "))
 		case "type":
 			if len(args) == 0 {
 				continue
