@@ -41,6 +41,16 @@ func main() {
 				continue
 			}
 			dir := args[0]
+			if dir == "~" || strings.HasPrefix(dir, "~/") {
+				home, err := os.UserHomeDir()
+				if err != nil {
+					fmt.Println("cd:", dir+":", "No such file or directory")
+					continue
+				}
+				if dir == "~" {
+					dir = home
+				}
+			}
 			if err := os.Chdir(dir); err != nil {
 				fmt.Println("cd:", dir+":", "No such file or directory")
 			}
