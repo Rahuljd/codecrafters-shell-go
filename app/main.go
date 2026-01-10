@@ -34,6 +34,12 @@ func main() {
 		args := words[1:]
 
 		switch cmd {
+		case "pwd":
+			dir, err := os.Getwd()
+			if err != nil {
+				return
+			}
+			fmt.Println(dir)
 		case "exit":
 			return
 		case "echo":
