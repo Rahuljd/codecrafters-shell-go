@@ -13,6 +13,7 @@ var builtins = map[string]bool{
 	"echo": true,
 	"type": true,
 	"pwd":  true,
+	"cd":   true,
 }
 
 func main() {
@@ -35,10 +36,19 @@ func main() {
 		args := words[1:]
 
 		switch cmd {
+		case "cd":
+			if len(args) == 0 {
+				continue
+			}
+			dir := args[0]
+			if err := os.Chdir(dir); err != nil {
+				fmt.Println("cd:", dir+":", "No such file or directory")
+			}
 		case "pwd":
 			dir, err := os.Getwd()
 			if err != nil {
-				return
+				fmt.Println("pwd:", err)
+				continue
 			}
 			fmt.Println(dir)
 		case "exit":
