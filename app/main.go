@@ -65,7 +65,7 @@ func runExternal(command string, args []string) {
 		return
 	}
 
-	cmd := exec.Command(path, args...)
+	cmd := exec.Command(command, args...)
 
 	// Connect program I/O directly to shell
 	cmd.Stdin = os.Stdin
