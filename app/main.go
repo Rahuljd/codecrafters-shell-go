@@ -52,7 +52,28 @@ func main() {
 				fmt.Println(args[0] + ": not found")
 			}
 		default:
-			fmt.Println(cmd + ": command not found")
+			runExternal(cmd, args)
+
 		}
+	}
+}
+
+func runExternal(command string, args []string) {
+	path, err := exec.LookPath(command)
+	if err != nil {
+		fmt.Println(command + ": command not found")
+		return
+	}
+
+	cmd := exec.Command(path, args...)
+
+	// Connect program I/O directly to shell
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		// Do NOT print anything unless needed
+		return
 	}
 }
