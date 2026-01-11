@@ -102,8 +102,21 @@ func parseInput(input string) []string {
 			escaped = false
 			continue
 		}
-		if c == '\\' && !inSingleQuotes && !inDoubleQuotes {
-			escaped = true
+		if c == '\\' {
+			if !inSingleQuotes && !inDoubleQuotes {
+				escaped = true
+				continue
+			}
+			if inDoubleQuotes && i+1 < len(input) {
+				next := input[i+1]
+				if next == '"' || next == '\\' {
+					current.WriteByte(next)
+					i++
+					continue
+				}
+			}
+			// Otherwise: literal backslash
+			current.WriteByte(c)
 			continue
 		}
 		switch c {
