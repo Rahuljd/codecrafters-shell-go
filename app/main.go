@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -27,7 +28,7 @@ func main() {
 			fmt.Println("Error reading input:", err)
 			return
 		}
-		words := strings.Fields(input)
+		words := parseInput(input)
 		if len(words) == 0 {
 			continue
 		}
@@ -49,6 +50,8 @@ func main() {
 				}
 				if dir == "~" {
 					dir = home
+				} else {
+					dir = filepath.Join(home, dir[2:])
 				}
 			}
 			if err := os.Chdir(dir); err != nil {
@@ -83,6 +86,35 @@ func main() {
 
 		}
 	}
+}
+
+func parseInput(input string) []string {
+	var args []string
+	var current strings.Builder
+	inSingleQuotes := false
+
+	for i := 0; i < len(input); i++ {
+		c := input[i]
+		switch c {
+		case '\'':
+			inSingleQuotes = !inSingleQuotes
+		case ' ', '\t', '\n':
+			if inSingleQuotes {
+				current.WriteByte(c)
+			} else {
+				if current.Len() > 0 {
+					args = append(args, current.String())
+					current.Reset()
+				}
+			}
+		default:
+			current.WriteByte(c)
+		}
+	}
+	if current.Len() > 0 {
+		args = append(args, current.String())
+	}
+	return args
 }
 
 func runExternal(command string, args []string) {
