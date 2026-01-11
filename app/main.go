@@ -93,9 +93,19 @@ func parseInput(input string) []string {
 	var current strings.Builder
 	inSingleQuotes := false
 	inDoubleQuotes := false
+	escaped := false
 
 	for i := 0; i < len(input); i++ {
 		c := input[i]
+		if escaped {
+			current.WriteByte(c)
+			escaped = false
+			continue
+		}
+		if c == '\\' && !inSingleQuotes && !inDoubleQuotes {
+			escaped = true
+			continue
+		}
 		switch c {
 		case '\'':
 			if !inDoubleQuotes {
