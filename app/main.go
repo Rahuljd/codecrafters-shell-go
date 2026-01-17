@@ -35,6 +35,27 @@ func main() {
 
 		cmd := words[0]
 		args := words[1:]
+		args, outFile := extractStdoutRedirection(args)
+
+		var (
+			file       *os.File
+			origStdout *os.File
+		)
+
+		if outFile != "" {
+			var err error
+			file, err = os.OpenFile(
+				outFile,
+				os.O_CREATE|os.O_WRONLY|os.O_TRUNC,
+				0644,
+			)
+			if err != nil {
+				fmt.Println("error:", err)
+				continue
+			}
+			origStdout = os.Stdout
+			os.Stdout = file
+		}
 
 		switch cmd {
 		case "cd":
@@ -84,6 +105,10 @@ func main() {
 		default:
 			runExternal(cmd, args)
 
+		}
+		if outFile != "" {
+			os.Stdout = origStdout
+			file.Close()
 		}
 	}
 }
@@ -149,6 +174,17 @@ func parseInput(input string) []string {
 		args = append(args, current.String())
 	}
 	return args
+}
+func extractStdoutRedirection(args []string) (cleanArgs []string, outFile string) {
+	for i := 0; i < len(args); i++ {
+		if args[i] == ">" || args[i] == "1>" {
+			if i+1 < len(args) {
+				outFile = args[i+1]
+			}
+			return args[:i], outFile
+		}
+	}
+	return args, ""
 }
 
 func runExternal(command string, args []string) {
