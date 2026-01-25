@@ -36,7 +36,7 @@ func main() {
 		cmd := words[0]
 		args := words[1:]
 		args, outFile, appendMode := extractStdoutRedirection(args)
-		args, errFile := extractStderrRedirection(args)
+		args, errFile, errAppend := extractStderrRedirection(args)
 		origStdout := os.Stdout
 		origStderr := os.Stderr
 
@@ -60,11 +60,19 @@ func main() {
 
 		// Redirect stderr if needed
 		if errFile != "" {
-			f, err := os.OpenFile(errFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+			flags := os.O_CREATE | os.O_WRONLY
+			if errAppend {
+				flags |= os.O_APPEND // 2>>
+			} else {
+				flags |= os.O_TRUNC // 2>
+			}
+
+			f, err := os.OpenFile(errFile, flags, 0644)
 			if err != nil {
 				fmt.Println("error:", err)
 				continue
 			}
+
 			os.Stderr = f
 			defer f.Close()
 		}
@@ -122,16 +130,24 @@ func main() {
 	}
 }
 
-func extractStderrRedirection(args []string) ([]string, string) {
+func extractStderrRedirection(args []string) (cleanArgs []string, errFile string, appendMode bool) {
 	for i := 0; i < len(args); i++ {
-		if args[i] == "2>" {
+		switch args[i] {
+
+		case "2>":
 			if i+1 < len(args) {
-				return args[:i], args[i+1]
+				return args[:i], args[i+1], false // overwrite
 			}
-			return args[:i], ""
+			return args[:i], "", false
+
+		case "2>>":
+			if i+1 < len(args) {
+				return args[:i], args[i+1], true // append
+			}
+			return args[:i], "", true
 		}
 	}
-	return args, ""
+	return args, "", false
 }
 
 func parseInput(input string) []string {
