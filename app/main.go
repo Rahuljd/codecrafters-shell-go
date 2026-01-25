@@ -36,27 +36,31 @@ func main() {
 		cmd := words[0]
 		args := words[1:]
 		args, outFile := extractStdoutRedirection(args)
+		args, errFile := extractStderrRedirection(args)
+		origStdout := os.Stdout
+		origStderr := os.Stderr
 
-		var (
-			file       *os.File
-			origStdout *os.File
-		)
-
+		// Redirect stdout if needed
 		if outFile != "" {
-			var err error
-			file, err = os.OpenFile(
-				outFile,
-				os.O_CREATE|os.O_WRONLY|os.O_TRUNC,
-				0644,
-			)
+			f, err := os.OpenFile(outFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 			if err != nil {
 				fmt.Println("error:", err)
 				continue
 			}
-			origStdout = os.Stdout
-			os.Stdout = file
+			os.Stdout = f
+			defer f.Close()
 		}
 
+		// Redirect stderr if needed
+		if errFile != "" {
+			f, err := os.OpenFile(errFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+			if err != nil {
+				fmt.Println("error:", err)
+				continue
+			}
+			os.Stderr = f
+			defer f.Close()
+		}
 		switch cmd {
 		case "cd":
 			if len(args) == 0 {
@@ -106,11 +110,21 @@ func main() {
 			runExternal(cmd, args)
 
 		}
-		if outFile != "" {
-			os.Stdout = origStdout
-			file.Close()
+		os.Stdout = origStdout
+		os.Stderr = origStderr
+	}
+}
+
+func extractStderrRedirection(args []string) ([]string, string) {
+	for i := 0; i < len(args); i++ {
+		if args[i] == "2>" {
+			if i+1 < len(args) {
+				return args[:i], args[i+1]
+			}
+			return args[:i], ""
 		}
 	}
+	return args, ""
 }
 
 func parseInput(input string) []string {
