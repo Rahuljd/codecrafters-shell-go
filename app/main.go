@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/term"
 )
 
 var builtins = map[string]bool{
@@ -18,7 +20,179 @@ var builtins = map[string]bool{
 }
 
 func main() {
+	// Enable raw mode for terminal input
+	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+	if err != nil {
+		// Fallback to standard input if raw mode fails
+		standardInputLoop()
+		return
+	}
+	defer term.Restore(int(os.Stdin.Fd()), oldState)
 
+	var inputBuffer strings.Builder
+
+	for {
+		fmt.Print("$ ")
+
+		for {
+			b := make([]byte, 1)
+			n, err := os.Stdin.Read(b)
+			if err != nil || n == 0 {
+				fmt.Println("Error reading input:", err)
+				return
+			}
+
+			char := b[0]
+
+			// TAB key (ASCII 9)
+			if char == '\t' {
+				partial := inputBuffer.String()
+				completed := autocomplete(partial)
+				if completed != partial {
+					// Clear current line and print completed command
+					fmt.Print("\r$ " + completed)
+					inputBuffer.Reset()
+					inputBuffer.WriteString(completed)
+				}
+				continue
+			}
+
+			// ENTER key (ASCII 13)
+			if char == '\r' {
+				fmt.Print("\n")
+				input := inputBuffer.String()
+				inputBuffer.Reset()
+
+				if input != "" {
+					processCommand(input)
+				}
+				break
+			}
+
+			// Backspace (ASCII 127) or Ctrl+H (ASCII 8)
+			if char == 127 || char == 8 {
+				if inputBuffer.Len() > 0 {
+					str := inputBuffer.String()
+					inputBuffer.Reset()
+					inputBuffer.WriteString(str[:len(str)-1])
+					fmt.Print("\b \b")
+				}
+				continue
+			}
+
+			// Printable characters
+			if char >= 32 && char < 127 {
+				inputBuffer.WriteByte(char)
+				fmt.Print(string(char))
+			}
+		}
+	}
+}
+
+func processCommand(input string) {
+	words := parseInput(input)
+	if len(words) == 0 {
+		return
+	}
+
+	cmd := words[0]
+	args := words[1:]
+	args, outFile, appendMode := extractStdoutRedirection(args)
+	args, errFile, errAppend := extractStderrRedirection(args)
+	origStdout := os.Stdout
+	origStderr := os.Stderr
+
+	if outFile != "" {
+		flags := os.O_CREATE | os.O_WRONLY
+		if appendMode {
+			flags |= os.O_APPEND // >>
+		} else {
+			flags |= os.O_TRUNC // >
+		}
+
+		f, err := os.OpenFile(outFile, flags, 0644)
+		if err != nil {
+			fmt.Println("error:", err)
+			return
+		}
+
+		os.Stdout = f
+		defer f.Close()
+	}
+
+	// Redirect stderr if needed
+	if errFile != "" {
+		flags := os.O_CREATE | os.O_WRONLY
+		if errAppend {
+			flags |= os.O_APPEND // 2>>
+		} else {
+			flags |= os.O_TRUNC // 2>
+		}
+
+		f, err := os.OpenFile(errFile, flags, 0644)
+		if err != nil {
+			fmt.Println("error:", err)
+			return
+		}
+
+		os.Stderr = f
+		defer f.Close()
+	}
+
+	switch cmd {
+	case "cd":
+		if len(args) == 0 {
+			return
+		}
+		dir := args[0]
+		if dir == "~" || strings.HasPrefix(dir, "~/") {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				fmt.Println("cd:", dir+":", "No such file or directory")
+				return
+			}
+			if dir == "~" {
+				dir = home
+			} else {
+				dir = filepath.Join(home, dir[2:])
+			}
+		}
+		if err := os.Chdir(dir); err != nil {
+			fmt.Println("cd:", dir+":", "No such file or directory")
+		}
+	case "pwd":
+		dir, err := os.Getwd()
+		if err != nil {
+			fmt.Println("pwd:", err)
+			return
+		}
+		fmt.Println(dir)
+	case "exit":
+		os.Stdout = origStdout
+		os.Stderr = origStderr
+		os.Exit(0)
+	case "echo":
+		fmt.Println(strings.Join(args, " "))
+	case "type":
+		if len(args) == 0 {
+			return
+		}
+		if builtins[args[0]] {
+			fmt.Println(args[0], "is a shell builtin")
+		} else if path, err := exec.LookPath(args[0]); err == nil {
+			fmt.Println(args[0], "is", path)
+		} else {
+			fmt.Println(args[0] + ": not found")
+		}
+	default:
+		runExternal(cmd, args)
+	}
+
+	os.Stdout = origStdout
+	os.Stderr = origStderr
+}
+
+func standardInputLoop() {
 	reader := bufio.NewReader(os.Stdin)
 
 	for {
@@ -28,106 +202,33 @@ func main() {
 			fmt.Println("Error reading input:", err)
 			return
 		}
-		words := parseInput(input)
-		if len(words) == 0 {
+
+		input = strings.TrimRight(input, "\n")
+		if input == "" {
 			continue
 		}
 
-		cmd := words[0]
-		args := words[1:]
-		args, outFile, appendMode := extractStdoutRedirection(args)
-		args, errFile, errAppend := extractStderrRedirection(args)
-		origStdout := os.Stdout
-		origStderr := os.Stderr
-
-		if outFile != "" {
-			flags := os.O_CREATE | os.O_WRONLY
-			if appendMode {
-				flags |= os.O_APPEND // >>
-			} else {
-				flags |= os.O_TRUNC // >
-			}
-
-			f, err := os.OpenFile(outFile, flags, 0644)
-			if err != nil {
-				fmt.Println("error:", err)
-				continue
-			}
-
-			os.Stdout = f
-			defer f.Close()
-		}
-
-		// Redirect stderr if needed
-		if errFile != "" {
-			flags := os.O_CREATE | os.O_WRONLY
-			if errAppend {
-				flags |= os.O_APPEND // 2>>
-			} else {
-				flags |= os.O_TRUNC // 2>
-			}
-
-			f, err := os.OpenFile(errFile, flags, 0644)
-			if err != nil {
-				fmt.Println("error:", err)
-				continue
-			}
-
-			os.Stderr = f
-			defer f.Close()
-		}
-		switch cmd {
-		case "cd":
-			if len(args) == 0 {
-				continue
-			}
-			dir := args[0]
-			if dir == "~" || strings.HasPrefix(dir, "~/") {
-				home, err := os.UserHomeDir()
-				if err != nil {
-					fmt.Println("cd:", dir+":", "No such file or directory")
-					continue
-				}
-				if dir == "~" {
-					dir = home
-				} else {
-					dir = filepath.Join(home, dir[2:])
-				}
-			}
-			if err := os.Chdir(dir); err != nil {
-				fmt.Println("cd:", dir+":", "No such file or directory")
-			}
-		case "pwd":
-			dir, err := os.Getwd()
-			if err != nil {
-				fmt.Println("pwd:", err)
-				continue
-			}
-			fmt.Println(dir)
-		case "exit":
-			return
-		case "echo":
-			fmt.Println(strings.Join(args, " "))
-		case "type":
-			if len(args) == 0 {
-				continue
-			}
-			if builtins[args[0]] {
-				fmt.Println(args[0], "is a shell builtin")
-				continue
-			}
-			if path, err := exec.LookPath(args[0]); err == nil {
-				fmt.Println(args[0], "is", path)
-			} else {
-				fmt.Println(args[0] + ": not found")
-			}
-		default:
-			runExternal(cmd, args)
-
-		}
-		os.Stdout = origStdout
-		os.Stderr = origStderr
+		processCommand(input)
 	}
+}
+
+func autocomplete(input string) string {
+	input = strings.TrimLeft(input, " ")
+
+	parts := strings.Fields(input)
+	if len(parts) == 0 {
+		return input
+	}
+
+	prefix := parts[0]
+
+	for _, cmd := range []string{"echo", "exit"} {
+		if strings.HasPrefix(cmd, prefix) {
+			return cmd + " "
+		}
+	}
+
+	return input
 }
 
 func extractStderrRedirection(args []string) (cleanArgs []string, errFile string, appendMode bool) {

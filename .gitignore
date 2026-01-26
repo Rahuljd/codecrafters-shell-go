@@ -1,0 +1,15 @@
+# Build artifacts
+*.exe
+*.out
+shell
+
+# Go
+vendor/
+go.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
