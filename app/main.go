@@ -1,165 +1,264 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
-	"golang.org/x/term"
+	"github.com/chzyer/readline"
 )
 
-var builtins = map[string]bool{
-	"exit": true,
-	"echo": true,
-	"type": true,
-	"pwd":  true,
-	"cd":   true,
+type RedirectionType int
+
+const (
+	TokenRedirectOut RedirectionType = iota
+	TokenRedirectAppend
+	TokenRedirectIn
+	TokenRedirect2
+	TokenRedirect22
+)
+
+type Redirection struct {
+	Type     RedirectionType
+	Filename string
+}
+
+type Shell struct {
+}
+
+var Builtins = map[string]bool{
+	"exit": true, "echo": true, "type": true, "cd": true, "pwd": true,
+}
+
+func InputParser(input string) (string, []string) {
+	var word strings.Builder
+	var newArr []string
+	preserveNextLiteral := false
+	backslashInQuotes := false
+	inQuotes := false
+	quoteChar := rune(0)
+
+	for _, ch := range input {
+		if preserveNextLiteral {
+			word.WriteRune(ch)
+			preserveNextLiteral = false
+			continue
+		}
+		if backslashInQuotes {
+			if ch == '$' || ch == '\\' || ch == '"' || ch == '`' {
+				word.WriteRune(ch)
+			} else {
+				word.WriteRune('\\')
+				word.WriteRune(ch)
+			}
+			backslashInQuotes = false
+			continue
+		}
+
+		switch {
+		case ch == '"' || ch == '\'':
+			if !inQuotes {
+				inQuotes = true
+				quoteChar = ch
+			} else if ch == quoteChar {
+				inQuotes = false
+				quoteChar = rune(0)
+			} else {
+				word.WriteRune(ch)
+			}
+		case ch == '\\':
+			if !inQuotes {
+				preserveNextLiteral = true
+			} else if quoteChar == '"' {
+				backslashInQuotes = true
+			} else {
+				word.WriteRune(ch)
+			}
+		case ch == ' ':
+			if inQuotes {
+				word.WriteRune(ch)
+			} else if word.Len() > 0 {
+				newArr = append(newArr, word.String())
+				word.Reset()
+			}
+		default:
+			word.WriteRune(ch)
+		}
+	}
+
+	if word.Len() > 0 {
+		newArr = append(newArr, word.String())
+	}
+	if len(newArr) == 0 {
+		return "", nil
+	}
+
+	noSingles := strings.ReplaceAll(input, "'", "")
+	noDoubles := strings.ReplaceAll(noSingles, `"`, "")
+	output := noDoubles
+
+	return output, newArr
 }
 
 func main() {
-	// Check if stdin is a TTY (interactive terminal)
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		// Not a TTY - use standard input loop (for testing/piping)
-		standardInputLoop()
-		return
-	}
+	shell := &Shell{}
 
-	// Enable raw mode for terminal input
-	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
-	if err != nil {
-		// Fallback to standard input if raw mode fails
-		standardInputLoop()
-		return
-	}
-	defer term.Restore(int(os.Stdin.Fd()), oldState)
-
-	var inputBuffer strings.Builder
+	rl, _ := readline.New("$ ")
+	completer := readline.NewPrefixCompleter(
+		readline.PcItem("exit"),
+		readline.PcItem("echo"),
+		readline.PcItem("type"),
+		readline.PcItem("pwd"),
+		readline.PcItem("cd"),
+	)
+	rl.Config.AutoComplete = completer
 
 	for {
-		fmt.Print("$ ")
-
-		for {
-			b := make([]byte, 1)
-			n, err := os.Stdin.Read(b)
-			if err != nil || n == 0 {
-				fmt.Println("Error reading input:", err)
-				return
-			}
-
-			char := b[0]
-
-			// TAB key (ASCII 9)
-			if char == '\t' {
-				partial := inputBuffer.String()
-				completed := autocomplete(partial)
-				if completed != partial {
-					// Clear current line and print completed command
-					fmt.Print("\r$ " + completed)
-					inputBuffer.Reset()
-					inputBuffer.WriteString(completed)
-				}
+		input, err := rl.Readline()
+		if err != nil {
+			if err == readline.ErrInterrupt {
 				continue
 			}
-
-			// ENTER key (ASCII 13)
-			if char == '\r' {
-				fmt.Print("\n")
-				input := inputBuffer.String()
-				inputBuffer.Reset()
-
-				if input != "" {
-					processCommand(input)
-				}
-				break
-			}
-
-			// Backspace (ASCII 127) or Ctrl+H (ASCII 8)
-			if char == 127 || char == 8 {
-				if inputBuffer.Len() > 0 {
-					str := inputBuffer.String()
-					inputBuffer.Reset()
-					inputBuffer.WriteString(str[:len(str)-1])
-					fmt.Print("\b \b")
-				}
-				continue
-			}
-
-			// Printable characters
-			if char >= 32 && char < 127 {
-				inputBuffer.WriteByte(char)
-				fmt.Print(string(char))
-			}
+			return
 		}
+
+		input = strings.TrimSpace(input)
+		if input == "" {
+			continue
+		}
+
+		_, args := InputParser(input)
+		if len(args) == 0 {
+			continue
+		}
+
+		cmd := args[0]
+		cmdArgs := args[1:]
+
+		shell.ExecuteCommand(cmd, cmdArgs)
 	}
 }
 
-func processCommand(input string) {
-	words := parseInput(input)
-	if len(words) == 0 {
-		return
+func (s *Shell) ExecuteCommand(cmd string, args []string) {
+	// Extract redirections
+	var stdoutFile, stderrFile string
+	var appendOut, appendErr bool
+	var cleanArgs []string
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case ">":
+			if i+1 < len(args) {
+				stdoutFile = args[i+1]
+				appendOut = false
+				i++
+			}
+		case ">>":
+			if i+1 < len(args) {
+				stdoutFile = args[i+1]
+				appendOut = true
+				i++
+			}
+		case "1>":
+			if i+1 < len(args) {
+				stdoutFile = args[i+1]
+				appendOut = false
+				i++
+			}
+		case "1>>":
+			if i+1 < len(args) {
+				stdoutFile = args[i+1]
+				appendOut = true
+				i++
+			}
+		case "2>":
+			if i+1 < len(args) {
+				stderrFile = args[i+1]
+				appendErr = false
+				i++
+			}
+		case "2>>":
+			if i+1 < len(args) {
+				stderrFile = args[i+1]
+				appendErr = true
+				i++
+			}
+		default:
+			cleanArgs = append(cleanArgs, args[i])
+		}
 	}
 
-	cmd := words[0]
-	args := words[1:]
-	args, errFile, errAppend := extractStderrRedirection(args)
-	args, outFile, appendMode := extractStdoutRedirection(args)
-	// Default: stderr should go to stdout (for tester visibility)
-	stdoutWriter := os.Stdout
-	stderrWriter := os.Stdout
+	// Setup output writers
+	var stdoutWriter io.Writer = os.Stdout
+	var stderrWriter io.Writer = os.Stderr
 
-	if outFile != "" {
+	if stdoutFile != "" {
 		flags := os.O_CREATE | os.O_WRONLY
-		if appendMode {
-			flags |= os.O_APPEND // >>
+		if appendOut {
+			flags |= os.O_APPEND
 		} else {
-			flags |= os.O_TRUNC // >
+			flags |= os.O_TRUNC
 		}
-
-		f, err := os.OpenFile(outFile, flags, 0644)
+		f, err := os.OpenFile(stdoutFile, flags, 0644)
 		if err != nil {
-			fmt.Println("error:", err)
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return
 		}
 		defer f.Close()
 		stdoutWriter = f
-
 	}
 
-	// Redirect stderr if needed
-	if errFile != "" {
+	if stderrFile != "" {
 		flags := os.O_CREATE | os.O_WRONLY
-		if errAppend {
-			flags |= os.O_APPEND // 2>>
+		if appendErr {
+			flags |= os.O_APPEND
 		} else {
-			flags |= os.O_TRUNC // 2>
+			flags |= os.O_TRUNC
 		}
-
-		f, err := os.OpenFile(errFile, flags, 0644)
+		f, err := os.OpenFile(stderrFile, flags, 0644)
 		if err != nil {
-			fmt.Println("error:", err)
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return
 		}
 		defer f.Close()
 		stderrWriter = f
-
 	}
 
-	if outFile != "" && errFile == "" {
-		stderrWriter = stdoutWriter
-	}
 	switch cmd {
-	case "cd":
-		if len(args) == 0 {
+	case "exit":
+		os.Exit(0)
+	case "echo":
+		fmt.Fprintln(stdoutWriter, strings.Join(cleanArgs, " "))
+	case "type":
+		if len(cleanArgs) == 0 {
 			return
 		}
-		dir := args[0]
+		if Builtins[cleanArgs[0]] {
+			fmt.Fprintf(stdoutWriter, "%s is a shell builtin\n", cleanArgs[0])
+		} else if path, err := exec.LookPath(cleanArgs[0]); err == nil {
+			fmt.Fprintf(stdoutWriter, "%s is %s\n", cleanArgs[0], path)
+		} else {
+			fmt.Fprintf(stderrWriter, "%s: not found\n", cleanArgs[0])
+		}
+	case "pwd":
+		cwd, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintf(stderrWriter, "pwd: %v\n", err)
+		} else {
+			fmt.Fprintln(stdoutWriter, cwd)
+		}
+	case "cd":
+		if len(cleanArgs) == 0 {
+			return
+		}
+		dir := cleanArgs[0]
 		if dir == "~" || strings.HasPrefix(dir, "~/") {
 			home, err := os.UserHomeDir()
 			if err != nil {
-				fmt.Println("cd:", dir+":", "No such file or directory")
+				fmt.Fprintf(stderrWriter, "cd: %s: No such file or directory\n", dir)
 				return
 			}
 			if dir == "~" {
@@ -169,193 +268,18 @@ func processCommand(input string) {
 			}
 		}
 		if err := os.Chdir(dir); err != nil {
-			fmt.Println("cd:", dir+":", "No such file or directory")
-		}
-	case "pwd":
-		dir, err := os.Getwd()
-		if err != nil {
-			fmt.Println("pwd:", err)
-			return
-		}
-		fmt.Println(dir)
-	case "exit":
-		os.Exit(0)
-	case "echo":
-		fmt.Println(strings.Join(args, " "))
-	case "type":
-		if len(args) == 0 {
-			return
-		}
-		if builtins[args[0]] {
-			fmt.Println(args[0], "is a shell builtin")
-		} else if path, err := exec.LookPath(args[0]); err == nil {
-			fmt.Println(args[0], "is", path)
-		} else {
-			fmt.Println(args[0] + ": not found")
+			fmt.Fprintf(stderrWriter, "cd: %s: No such file or directory\n", dir)
 		}
 	default:
-		runExternal(cmd, args, stdoutWriter, stderrWriter)
+		s.ExecuteExternalCommand(cmd, cleanArgs, stdoutWriter, stderrWriter)
 	}
 }
 
-func standardInputLoop() {
-	reader := bufio.NewReader(os.Stdin)
+func (s *Shell) ExecuteExternalCommand(cmd string, args []string, stdoutWriter, stderrWriter io.Writer) {
+	command := exec.Command(cmd, args...)
+	command.Stdin = os.Stdin
+	command.Stdout = stdoutWriter
+	command.Stderr = stderrWriter
 
-	for {
-		fmt.Print("$ ")
-		input, err := reader.ReadString('\n')
-		if err != nil {
-			fmt.Println("Error reading input:", err)
-			return
-		}
-
-		input = strings.TrimRight(input, "\n")
-		if input == "" {
-			continue
-		}
-
-		processCommand(input)
-	}
-}
-
-func autocomplete(input string) string {
-	input = strings.TrimLeft(input, " ")
-
-	parts := strings.Fields(input)
-	if len(parts) == 0 {
-		return input
-	}
-
-	prefix := parts[0]
-
-	// Find all matching commands
-	var matches []string
-	for _, cmd := range []string{"echo", "exit"} {
-		if strings.HasPrefix(cmd, prefix) {
-			matches = append(matches, cmd)
-		}
-	}
-
-	// Only autocomplete if there's exactly one match
-	if len(matches) == 1 {
-		return matches[0] + " "
-	}
-
-	return input
-}
-
-func extractStderrRedirection(args []string) (cleanArgs []string, errFile string, appendMode bool) {
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-
-		case "2>":
-			if i+1 < len(args) {
-				return args[:i], args[i+1], false // overwrite
-			}
-			return args[:i], "", false
-
-		case "2>>":
-			if i+1 < len(args) {
-				return args[:i], args[i+1], true // append
-			}
-			return args[:i], "", true
-		}
-	}
-	return args, "", false
-}
-
-func parseInput(input string) []string {
-	var args []string
-	var current strings.Builder
-	inSingleQuotes := false
-	inDoubleQuotes := false
-	escaped := false
-
-	for i := 0; i < len(input); i++ {
-		c := input[i]
-		if escaped {
-			current.WriteByte(c)
-			escaped = false
-			continue
-		}
-		if c == '\\' {
-			if !inSingleQuotes && !inDoubleQuotes {
-				escaped = true
-				continue
-			}
-			if inDoubleQuotes && i+1 < len(input) {
-				next := input[i+1]
-				if next == '"' || next == '\\' {
-					current.WriteByte(next)
-					i++
-					continue
-				}
-			}
-			// Otherwise: literal backslash
-			current.WriteByte(c)
-			continue
-		}
-		switch c {
-		case '\'':
-			if !inDoubleQuotes {
-				inSingleQuotes = !inSingleQuotes
-			} else {
-				current.WriteByte(c)
-			}
-		case '"':
-			if !inSingleQuotes {
-				inDoubleQuotes = !inDoubleQuotes
-			} else {
-				current.WriteByte(c)
-			}
-		case ' ', '\t', '\n':
-			if inSingleQuotes || inDoubleQuotes {
-				current.WriteByte(c)
-			} else {
-				if current.Len() > 0 {
-					args = append(args, current.String())
-					current.Reset()
-				}
-			}
-		default:
-			current.WriteByte(c)
-		}
-	}
-	if current.Len() > 0 {
-		args = append(args, current.String())
-	}
-	return args
-}
-func extractStdoutRedirection(args []string) (cleanArgs []string, outFile string, appendMode bool) {
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case ">", "1>":
-			if i+1 < len(args) {
-				return args[:i], args[i+1], false // overwrite
-			}
-			return args[:i], "", false
-
-		case ">>", "1>>":
-			if i+1 < len(args) {
-				return args[:i], args[i+1], true // append
-			}
-			return args[:i], "", true
-		}
-	}
-	return args, "", false
-}
-
-func runExternal(command string, args []string, stdout, stderr *os.File) {
-	cmd := exec.Command(command, args...)
-
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = stdout
-
-	if stderr == nil {
-		cmd.Stderr = stdout
-	} else {
-		cmd.Stderr = stderr
-	}
-
-	_ = cmd.Run()
+	_ = command.Run()
 }
