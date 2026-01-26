@@ -556,33 +556,42 @@ func (s *Shell) ExecutePipeline(args []string, pipeIndex int) {
 		return
 	}
 
-	// Handle first command (can be built-in or external)
+	// If first command is built-in, execute it and close the writer
 	if isBuiltin(cmd1) {
-		// For built-in commands, execute them directly with the pipe writer as stdout
 		s.ExecuteCommandWithIOAndStdin(cmd1, cmd1Opts, os.Stdin, writer, os.Stderr)
 		writer.Close()
-	} else {
-		// For external commands, create a process
-		command1 := exec.Command(cmd1, cmd1Opts...)
-		command1.Stdin = os.Stdin
-		command1.Stdout = writer
-		command1.Stderr = os.Stderr
 
-		if err := command1.Start(); err != nil {
-			fmt.Fprintf(os.Stderr, "%s: command not found\n", cmd1)
-			writer.Close()
-			reader.Close()
-			return
+		// Now execute the second command with the pipe reader
+		if isBuiltin(cmd2) {
+			s.ExecuteCommandWithIOAndStdin(cmd2, cmd2Opts, reader, os.Stdout, os.Stderr)
+		} else {
+			command2 := exec.Command(cmd2, cmd2Opts...)
+			command2.Stdin = reader
+			command2.Stdout = os.Stdout
+			command2.Stderr = os.Stderr
+			_ = command2.Run()
 		}
-
-		// Close writer in parent process
-		writer.Close()
-
-		// Wait for command1 to finish before starting command2
-		_ = command1.Wait()
+		reader.Close()
+		return
 	}
 
-	// Handle second command (can be built-in or external)
+	// Both commands are external: start them concurrently
+	command1 := exec.Command(cmd1, cmd1Opts...)
+	command1.Stdin = os.Stdin
+	command1.Stdout = writer
+	command1.Stderr = os.Stderr
+
+	if err := command1.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "%s: command not found\n", cmd1)
+		writer.Close()
+		reader.Close()
+		return
+	}
+
+	// Close writer in parent process so command2 gets EOF when command1 finishes
+	writer.Close()
+
+	// Start second command
 	if isBuiltin(cmd2) {
 		// For built-in commands, execute them with the pipe reader as stdin
 		s.ExecuteCommandWithIOAndStdin(cmd2, cmd2Opts, reader, os.Stdout, os.Stderr)
@@ -600,8 +609,14 @@ func (s *Shell) ExecutePipeline(args []string, pipeIndex int) {
 			return
 		}
 
-		// Wait for command2 to finish
+		// Wait for both commands to finish
+		_ = command1.Wait()
 		_ = command2.Wait()
 		reader.Close()
+		return
 	}
+
+	// If we reach here, cmd1 is external and cmd2 is built-in
+	// Wait for command1 to finish
+	_ = command1.Wait()
 }
