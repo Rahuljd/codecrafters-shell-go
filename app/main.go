@@ -11,6 +11,23 @@ import (
 	"github.com/chzyer/readline"
 )
 
+type BellCompleter struct {
+	baseCompleter readline.AutoCompleter
+}
+
+// Do implements the readline.AutoCompleter interface
+func (b *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) {
+	// Call the base completer
+	newLine, length = b.baseCompleter.Do(line, pos)
+
+	// If no completions found, ring the bell
+	if len(newLine) == 0 {
+		fmt.Print("\x07") // Bell character
+	}
+
+	return newLine, length
+}
+
 type RedirectionType int
 
 const (
@@ -107,14 +124,19 @@ func main() {
 	shell := &Shell{}
 
 	rl, _ := readline.New("$ ")
-	completer := readline.NewPrefixCompleter(
+
+	// Create base completer
+	baseCompleter := readline.NewPrefixCompleter(
 		readline.PcItem("exit"),
 		readline.PcItem("echo"),
 		readline.PcItem("type"),
 		readline.PcItem("pwd"),
 		readline.PcItem("cd"),
 	)
-	rl.Config.AutoComplete = completer
+
+	// Wrap with bell completer
+	bellCompleter := &BellCompleter{baseCompleter: baseCompleter}
+	rl.Config.AutoComplete = bellCompleter
 
 	for {
 		input, err := rl.Readline()
