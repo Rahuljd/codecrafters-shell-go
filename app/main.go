@@ -118,14 +118,14 @@ func (b *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) 
 		return [][]rune{}, 0
 	}
 
-	// Convert matches to readline format
+	// Convert matches to readline format - add trailing space after each completion
 	for _, match := range matches {
-		newLine = append(newLine, []rune(match))
+		newLine = append(newLine, []rune(match+" "))
 	}
 
 	// Return length of prefix to replace
-	// This should be the number of characters from the current position backward
-	length = pos - wordStart
+	// length should be how many characters to delete from the end of the input
+	length = len(prefix)
 	return newLine, length
 }
 
