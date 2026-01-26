@@ -343,18 +343,17 @@ func main() {
 			continue
 		}
 
-		// Check for pipe operator
-		pipeIndex := -1
+		// Check for pipe operators
+		pipeIndices := []int{}
 		for i, arg := range args {
 			if arg == "|" {
-				pipeIndex = i
-				break
+				pipeIndices = append(pipeIndices, i)
 			}
 		}
 
-		if pipeIndex != -1 {
-			// Execute pipeline
-			shell.ExecutePipeline(args, pipeIndex)
+		if len(pipeIndices) > 0 {
+			// Execute pipeline (may have multiple pipes)
+			shell.ExecutePipeline(args, pipeIndices)
 		} else {
 			// Execute single command
 			cmd := args[0]
@@ -533,90 +532,133 @@ func (s *Shell) ExecuteExternalCommand(cmd string, args []string, stdoutWriter, 
 	_ = command.Run()
 }
 
-func (s *Shell) ExecutePipeline(args []string, pipeIndex int) {
-	// Split args at pipe: [cmd1 args...] | [cmd2 args...]
-	cmd1Args := args[:pipeIndex]
-	cmd2Args := args[pipeIndex+1:]
+func (s *Shell) ExecutePipeline(args []string, pipeIndices []int) {
+	// Split args into command segments between pipes
+	// For example: "cat file | grep pattern | wc -l" -> [["cat", "file"], ["grep", "pattern"], ["wc", "-l"]]
 
-	if len(cmd1Args) == 0 || len(cmd2Args) == 0 {
+	if len(pipeIndices) == 0 {
 		fmt.Fprintf(os.Stderr, "error: invalid pipeline\n")
 		return
 	}
 
-	cmd1 := cmd1Args[0]
-	cmd1Opts := cmd1Args[1:]
+	// Build command segments
+	var commandSegments [][]string
+	prevIndex := 0
 
-	cmd2 := cmd2Args[0]
-	cmd2Opts := cmd2Args[1:]
-
-	// Create a pipe
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: failed to create pipe: %v\n", err)
-		return
-	}
-
-	// If first command is built-in, execute it and close the writer
-	if isBuiltin(cmd1) {
-		s.ExecuteCommandWithIOAndStdin(cmd1, cmd1Opts, os.Stdin, writer, os.Stderr)
-		writer.Close()
-
-		// Now execute the second command with the pipe reader
-		if isBuiltin(cmd2) {
-			s.ExecuteCommandWithIOAndStdin(cmd2, cmd2Opts, reader, os.Stdout, os.Stderr)
-		} else {
-			command2 := exec.Command(cmd2, cmd2Opts...)
-			command2.Stdin = reader
-			command2.Stdout = os.Stdout
-			command2.Stderr = os.Stderr
-			_ = command2.Run()
-		}
-		reader.Close()
-		return
-	}
-
-	// Both commands are external: start them concurrently
-	command1 := exec.Command(cmd1, cmd1Opts...)
-	command1.Stdin = os.Stdin
-	command1.Stdout = writer
-	command1.Stderr = os.Stderr
-
-	if err := command1.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "%s: command not found\n", cmd1)
-		writer.Close()
-		reader.Close()
-		return
-	}
-
-	// Close writer in parent process so command2 gets EOF when command1 finishes
-	writer.Close()
-
-	// Start second command
-	if isBuiltin(cmd2) {
-		// For built-in commands, execute them with the pipe reader as stdin
-		s.ExecuteCommandWithIOAndStdin(cmd2, cmd2Opts, reader, os.Stdout, os.Stderr)
-		reader.Close()
-	} else {
-		// For external commands, create a process
-		command2 := exec.Command(cmd2, cmd2Opts...)
-		command2.Stdin = reader
-		command2.Stdout = os.Stdout
-		command2.Stderr = os.Stderr
-
-		if err := command2.Start(); err != nil {
-			fmt.Fprintf(os.Stderr, "%s: command not found\n", cmd2)
-			reader.Close()
+	for _, pipeIndex := range pipeIndices {
+		segment := args[prevIndex:pipeIndex]
+		if len(segment) == 0 {
+			fmt.Fprintf(os.Stderr, "error: invalid pipeline\n")
 			return
 		}
-
-		// Wait for both commands to finish
-		_ = command1.Wait()
-		_ = command2.Wait()
-		reader.Close()
-		return
+		commandSegments = append(commandSegments, segment)
+		prevIndex = pipeIndex + 1
 	}
 
-	// If we reach here, cmd1 is external and cmd2 is built-in
-	// Wait for command1 to finish
-	_ = command1.Wait()
+	// Add the last segment
+	lastSegment := args[prevIndex:]
+	if len(lastSegment) == 0 {
+		fmt.Fprintf(os.Stderr, "error: invalid pipeline\n")
+		return
+	}
+	commandSegments = append(commandSegments, lastSegment)
+
+	// Create pipes between commands (n-1 pipes for n commands)
+	pipes := make([]*os.File, 0)
+	readers := make([]*os.File, 0)
+
+	for i := 0; i < len(commandSegments)-1; i++ {
+		reader, writer, err := os.Pipe()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: failed to create pipe: %v\n", err)
+			// Clean up already created pipes
+			for _, p := range pipes {
+				p.Close()
+			}
+			for _, r := range readers {
+				r.Close()
+			}
+			return
+		}
+		pipes = append(pipes, writer)
+		readers = append(readers, reader)
+	}
+
+	// Keep track of started external commands for waiting
+	var commands []*exec.Cmd
+
+	// Execute all commands in the pipeline
+	for i, segment := range commandSegments {
+		cmd := segment[0]
+		cmdArgs := segment[1:]
+
+		// Determine stdin and stdout for this command
+		var cmdStdin io.Reader = os.Stdin
+		var cmdStdout io.Writer = os.Stdout
+
+		// All commands except the first get their stdin from the previous pipe
+		if i > 0 {
+			cmdStdin = readers[i-1]
+		}
+
+		// All commands except the last write their stdout to the next pipe
+		if i < len(pipes) {
+			cmdStdout = pipes[i]
+		}
+
+		// If the command is built-in, execute it
+		if isBuiltin(cmd) {
+			s.ExecuteCommandWithIOAndStdin(cmd, cmdArgs, cmdStdin, cmdStdout, os.Stderr)
+
+			// Close the writer for built-in commands so the next command gets EOF
+			if i < len(pipes) {
+				pipes[i].Close()
+			}
+		} else {
+			// External command: create and start it
+			command := exec.Command(cmd, cmdArgs...)
+			command.Stdin = cmdStdin
+			command.Stdout = cmdStdout
+			command.Stderr = os.Stderr
+
+			if err := command.Start(); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: command not found\n", cmd)
+				// Clean up pipes
+				for _, p := range pipes {
+					p.Close()
+				}
+				for _, r := range readers {
+					r.Close()
+				}
+				return
+			}
+
+			commands = append(commands, command)
+
+			// Close the writer in parent process after starting the command
+			// This allows the next command to receive EOF when this command finishes
+			if i < len(pipes) {
+				pipes[i].Close()
+			}
+		}
+
+		// Close the reader in the parent process after passing it to a command
+		// (The command now owns the reader)
+		if i > 0 && i-1 < len(readers) {
+			// Don't close here - let the commands use them
+		}
+	}
+
+	// Close all pipes and readers in parent
+	for _, p := range pipes {
+		p.Close()
+	}
+	for _, r := range readers {
+		r.Close()
+	}
+
+	// Wait for all started external commands to finish
+	for _, command := range commands {
+		_ = command.Wait()
+	}
 }
