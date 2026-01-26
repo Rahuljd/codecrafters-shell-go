@@ -107,8 +107,8 @@ func processCommand(input string) {
 	args, errFile, errAppend := extractStderrRedirection(args)
 	args, outFile, appendMode := extractStdoutRedirection(args)
 	// Default: stderr should go to stdout (for tester visibility)
-	var stderrWriter *os.File = nil
 	stdoutWriter := os.Stdout
+	stderrWriter := os.Stdout
 
 	if outFile != "" {
 		flags := os.O_CREATE | os.O_WRONLY
@@ -147,6 +147,9 @@ func processCommand(input string) {
 
 	}
 
+	if outFile != "" && errFile == "" {
+		stderrWriter = stdoutWriter
+	}
 	switch cmd {
 	case "cd":
 		if len(args) == 0 {
