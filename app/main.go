@@ -78,43 +78,50 @@ type BellCompleter struct {
 
 // Do implements the readline.AutoCompleter interface
 func (b *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) {
-	// Call the base completer
-	newLine, length = b.baseCompleter.Do(line, pos)
+	lineStr := string(line[:pos])
 
-	// If no completions found, check PATH executables
-	if len(newLine) == 0 {
-		lineStr := string(line)
-		parts := strings.Fields(lineStr)
-		if len(parts) > 0 {
-			prefix := parts[0]
+	// Get the command (first word)
+	parts := strings.Fields(lineStr)
+	if len(parts) == 0 {
+		fmt.Print("\x07") // Bell for empty input
+		return [][]rune{}, 0
+	}
 
-			// Get executables from PATH
-			pathExecs := getPathExecutables()
+	prefix := parts[0]
 
-			// Find matching executables
-			var matches []string
-			for exec := range pathExecs {
-				if strings.HasPrefix(exec, prefix) {
-					matches = append(matches, exec)
-				}
-			}
+	// First check builtins
+	builtins := []string{"exit", "echo", "type", "pwd", "cd"}
+	var matches []string
 
-			// Convert matches to readline format
-			if len(matches) > 0 {
-				for _, match := range matches {
-					newLine = append(newLine, []rune(match))
-				}
-				length = len(prefix)
-			} else {
-				// No matches at all, ring the bell
-				fmt.Print("\x07")
-			}
-		} else {
-			// Empty input, ring the bell
-			fmt.Print("\x07")
+	for _, cmd := range builtins {
+		if strings.HasPrefix(cmd, prefix) {
+			matches = append(matches, cmd)
 		}
 	}
 
+	// If no builtins matched, check PATH executables
+	if len(matches) == 0 {
+		pathExecs := getPathExecutables()
+		for exec := range pathExecs {
+			if strings.HasPrefix(exec, prefix) {
+				matches = append(matches, exec)
+			}
+		}
+	}
+
+	// If still no matches, ring the bell
+	if len(matches) == 0 {
+		fmt.Print("\x07")
+		return [][]rune{}, 0
+	}
+
+	// Convert matches to readline format
+	for _, match := range matches {
+		newLine = append(newLine, []rune(match))
+	}
+
+	// Return length of prefix to replace
+	length = len(prefix)
 	return newLine, length
 }
 
