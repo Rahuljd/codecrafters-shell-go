@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"strings"
 )
@@ -50,26 +49,20 @@ func LoadHistoryFromFile(filepath string) error {
 
 // WriteHistoryToFile writes all history entries to a file
 func WriteHistoryToFile(filepath string) error {
-	fmt.Fprintf(os.Stderr, "[DEBUG] WriteHistoryToFile called with path: %s\n", filepath)
-	fmt.Fprintf(os.Stderr, "[DEBUG] History has %d entries\n", len(commandHistory))
-
 	// Create or truncate the file
 	file, err := os.Create(filepath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[DEBUG] Error creating file: %v\n", err)
 		return err
 	}
 	defer file.Close()
 
 	// Write each history entry on a separate line
-	for i, cmd := range commandHistory {
-		fmt.Fprintf(os.Stderr, "[DEBUG] Writing entry %d: %s\n", i, cmd)
+	for _, cmd := range commandHistory {
 		_, err := file.WriteString(cmd + "\n")
 		if err != nil {
 			return err
 		}
 	}
 
-	fmt.Fprintf(os.Stderr, "[DEBUG] File written successfully\n")
 	return nil
 }
