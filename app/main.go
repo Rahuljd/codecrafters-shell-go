@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"strings"
 
 	"github.com/chzyer/readline"
@@ -8,6 +9,19 @@ import (
 
 func main() {
 	shell := &Shell{}
+
+	// Load history from HISTFILE environment variable on startup
+	histFile := os.Getenv("HISTFILE")
+	if histFile != "" {
+		LoadHistoryFromFile(histFile)
+	}
+
+	// Save history to HISTFILE on exit
+	defer func() {
+		if histFile != "" {
+			WriteHistoryToFile(histFile)
+		}
+	}()
 
 	rl, _ := readline.New("$ ")
 
