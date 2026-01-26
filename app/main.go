@@ -69,20 +69,10 @@ func getPathExecutables() map[string]bool {
 }
 
 type BellCompleter struct {
-	baseCompleter readline.AutoCompleter
 }
 
 // Do implements the readline.AutoCompleter interface
 func (b *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) {
-	// First try the base completer for builtins
-	newLine, length = b.baseCompleter.Do(line, pos)
-
-	// If builtins found matches, use them
-	if len(newLine) > 0 {
-		return newLine, length
-	}
-
-	// No builtin matches, check PATH executables
 	lineStr := string(line[:pos])
 
 	// Find the start of the current word (first word, since we're completing commands)
@@ -102,13 +92,23 @@ func (b *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) 
 		return [][]rune{}, 0
 	}
 
-	// Get executables from PATH
-	pathExecs := getPathExecutables()
+	// First check builtins
+	builtins := []string{"exit", "echo", "type", "pwd", "cd"}
 	var matches []string
 
-	for exec := range pathExecs {
-		if strings.HasPrefix(exec, prefix) {
-			matches = append(matches, exec)
+	for _, cmd := range builtins {
+		if strings.HasPrefix(cmd, prefix) {
+			matches = append(matches, cmd)
+		}
+	}
+
+	// If no builtins matched, check PATH executables
+	if len(matches) == 0 {
+		pathExecs := getPathExecutables()
+		for exec := range pathExecs {
+			if strings.HasPrefix(exec, prefix) {
+				matches = append(matches, exec)
+			}
 		}
 	}
 
@@ -226,17 +226,8 @@ func main() {
 
 	rl, _ := readline.New("$ ")
 
-	// Create base completer
-	baseCompleter := readline.NewPrefixCompleter(
-		readline.PcItem("exit"),
-		readline.PcItem("echo"),
-		readline.PcItem("type"),
-		readline.PcItem("pwd"),
-		readline.PcItem("cd"),
-	)
-
-	// Wrap with bell completer
-	bellCompleter := &BellCompleter{baseCompleter: baseCompleter}
+	// Use our custom completer that handles both builtins and PATH executables
+	bellCompleter := &BellCompleter{}
 	rl.Config.AutoComplete = bellCompleter
 
 	for {
