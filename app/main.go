@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/chzyer/readline"
@@ -519,8 +520,29 @@ func (s *Shell) ExecuteCommandWithIOAndStdin(cmd string, args []string, stdinRea
 			fmt.Fprintf(stderrWriter, "cd: %s: No such file or directory\n", dir)
 		}
 	case "history":
-		for i, cmd := range commandHistory {
-			fmt.Fprintf(stdoutWriter, "    %d  %s\n", i+1, cmd)
+		// Display history, optionally limited to last n entries
+		var displayCount int
+		if len(args) > 0 {
+			// Parse the optional number argument
+			n, err := strconv.Atoi(args[0])
+			if err != nil {
+				fmt.Fprintf(stderrWriter, "history: %s: invalid argument\n", args[0])
+				return
+			}
+			displayCount = n
+		} else {
+			displayCount = len(commandHistory)
+		}
+
+		// Ensure we don't try to show more history than exists
+		startIndex := len(commandHistory) - displayCount
+		if startIndex < 0 {
+			startIndex = 0
+		}
+
+		// Display the requested history entries
+		for i := startIndex; i < len(commandHistory); i++ {
+			fmt.Fprintf(stdoutWriter, "    %d  %s\n", i+1, commandHistory[i])
 		}
 	default:
 		s.ExecuteExternalCommand(cmd, args, stdoutWriter, stderrWriter)
