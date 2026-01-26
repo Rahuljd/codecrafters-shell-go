@@ -222,10 +222,17 @@ func autocomplete(input string) string {
 
 	prefix := parts[0]
 
+	// Find all matching commands
+	var matches []string
 	for _, cmd := range []string{"echo", "exit"} {
 		if strings.HasPrefix(cmd, prefix) {
-			return cmd + " "
+			matches = append(matches, cmd)
 		}
+	}
+
+	// Only autocomplete if there's exactly one match
+	if len(matches) == 1 {
+		return matches[0] + " "
 	}
 
 	return input
