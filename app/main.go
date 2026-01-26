@@ -20,6 +20,13 @@ var builtins = map[string]bool{
 }
 
 func main() {
+	// Check if stdin is a TTY (interactive terminal)
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		// Not a TTY - use standard input loop (for testing/piping)
+		standardInputLoop()
+		return
+	}
+
 	// Enable raw mode for terminal input
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err != nil {
@@ -64,11 +71,7 @@ func main() {
 				inputBuffer.Reset()
 
 				if input != "" {
-					// Temporarily restore terminal to normal mode for command execution
-					term.Restore(int(os.Stdin.Fd()), oldState)
 					processCommand(input)
-					// Re-enable raw mode
-					oldState, _ = term.MakeRaw(int(os.Stdin.Fd()))
 				}
 				break
 			}
