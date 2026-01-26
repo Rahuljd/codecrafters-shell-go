@@ -64,7 +64,11 @@ func main() {
 				inputBuffer.Reset()
 
 				if input != "" {
+					// Temporarily restore terminal to normal mode for command execution
+					term.Restore(int(os.Stdin.Fd()), oldState)
 					processCommand(input)
+					// Re-enable raw mode
+					oldState, _ = term.MakeRaw(int(os.Stdin.Fd()))
 				}
 				break
 			}
