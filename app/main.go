@@ -106,8 +106,6 @@ func processCommand(input string) {
 	args := words[1:]
 	args, errFile, errAppend := extractStderrRedirection(args)
 	args, outFile, appendMode := extractStdoutRedirection(args)
-	origStdout := os.Stdout
-	origStderr := os.Stderr
 	// Default: stderr should go to stdout (for tester visibility)
 	stderrWriter := os.Stdout
 	stdoutWriter := os.Stdout
