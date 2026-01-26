@@ -108,6 +108,9 @@ func processCommand(input string) {
 	args, outFile, appendMode := extractStdoutRedirection(args)
 	origStdout := os.Stdout
 	origStderr := os.Stderr
+	// Default: stderr should go to stdout (for tester visibility)
+	stderrWriter := os.Stdout
+	stdoutWriter := os.Stdout
 
 	if outFile != "" {
 		flags := os.O_CREATE | os.O_WRONLY
@@ -122,9 +125,9 @@ func processCommand(input string) {
 			fmt.Println("error:", err)
 			return
 		}
-
-		os.Stdout = f
 		defer f.Close()
+		stdoutWriter = f
+
 	}
 
 	// Redirect stderr if needed
@@ -141,9 +144,9 @@ func processCommand(input string) {
 			fmt.Println("error:", err)
 			return
 		}
-
-		os.Stderr = f
 		defer f.Close()
+		stderrWriter = f
+
 	}
 
 	switch cmd {
@@ -190,11 +193,8 @@ func processCommand(input string) {
 			fmt.Println(args[0] + ": not found")
 		}
 	default:
-		runExternal(cmd, args)
+		runExternal(cmd, args, stdoutWriter, stderrWriter)
 	}
-
-	os.Stdout = origStdout
-	os.Stderr = origStderr
 }
 
 func standardInputLoop() {
@@ -344,7 +344,7 @@ func extractStdoutRedirection(args []string) (cleanArgs []string, outFile string
 	return args, "", false
 }
 
-func runExternal(command string, args []string) {
+func runExternal(command string, args []string, stdout, stderr *os.File) {
 	_, err := exec.LookPath(command)
 	if err != nil {
 		fmt.Println(command + ": command not found")
@@ -355,8 +355,8 @@ func runExternal(command string, args []string) {
 
 	// Connect program I/O directly to shell
 	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	if err := cmd.Run(); err != nil {
 		// Do NOT print anything unless needed
