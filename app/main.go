@@ -107,7 +107,7 @@ func processCommand(input string) {
 	args, errFile, errAppend := extractStderrRedirection(args)
 	args, outFile, appendMode := extractStdoutRedirection(args)
 	// Default: stderr should go to stdout (for tester visibility)
-	stderrWriter := os.Stdout
+	var stderrWriter *os.File = nil
 	stdoutWriter := os.Stdout
 
 	if outFile != "" {
@@ -343,21 +343,17 @@ func extractStdoutRedirection(args []string) (cleanArgs []string, outFile string
 }
 
 func runExternal(command string, args []string, stdout, stderr *os.File) {
-	_, err := exec.LookPath(command)
-	if err != nil {
-		fmt.Println(command + ": command not found")
-		return
-	}
-
 	cmd := exec.Command(command, args...)
 
-	// Connect program I/O directly to shell
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = stdout
-	cmd.Stderr = stderr
 
-	if err := cmd.Run(); err != nil {
-		// Do NOT print anything unless needed
-		return
+	// ⭐ KEY FIX ⭐
+	if stderr == nil {
+		cmd.Stderr = os.Stdout
+	} else {
+		cmd.Stderr = stderr
 	}
+
+	_ = cmd.Run()
 }
