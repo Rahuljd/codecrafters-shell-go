@@ -174,9 +174,20 @@ func (s *Shell) ExecuteCommandWithIOAndStdin(cmd string, args []string, stdinRea
 				return
 			}
 			filePath := args[1]
+			// Save the current history command before loading from file
+			currentCmd := ""
+			if len(commandHistory) > 0 {
+				currentCmd = commandHistory[len(commandHistory)-1]
+			}
+			// Load from file (this clears history)
 			err := LoadHistoryFromFile(filePath)
 			if err != nil {
 				fmt.Fprintf(stderrWriter, "history: %v\n", err)
+				return
+			}
+			// Restore the history -r command that was just added in main.go
+			if currentCmd != "" {
+				AddToHistory(currentCmd)
 			}
 			return
 		}
