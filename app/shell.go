@@ -29,6 +29,7 @@ type Shell struct{}
 
 // ExecuteCommand executes a single command with redirection support
 func (s *Shell) ExecuteCommand(cmd string, args []string) {
+	fmt.Fprintf(os.Stderr, "[DEBUG ExecuteCommand] cmd=%s, args=%v\n", cmd, args)
 	// Extract redirections
 	var stdoutFile, stderrFile string
 	var appendOut, appendErr bool
@@ -167,6 +168,23 @@ func (s *Shell) ExecuteCommandWithIOAndStdin(cmd string, args []string, stdinRea
 			fmt.Fprintf(stderrWriter, "cd: %s: No such file or directory\n", dir)
 		}
 	case "history":
+		fmt.Fprintf(os.Stderr, "[DEBUG] History command with args: %v (len=%d)\n", args, len(args))
+		// Handle history -w <path> to write to file
+		if len(args) > 0 && args[0] == "-w" {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Matched -w flag, args[1]=%s\n", args[1])
+			if len(args) < 2 {
+				fmt.Fprintf(stderrWriter, "history: -w requires a path\n")
+				return
+			}
+			filePath := args[1]
+			// Write history to file (includes the history -w command itself since it was already added to history)
+			err := WriteHistoryToFile(filePath)
+			if err != nil {
+				fmt.Fprintf(stderrWriter, "history: %v\n", err)
+			}
+			return
+		}
+
 		// Handle history -r <path> to read from file
 		if len(args) > 0 && args[0] == "-r" {
 			if len(args) < 2 {

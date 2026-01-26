@@ -1,0 +1,4 @@
+echo test1
+echo test2
+history -w test_history.txt
+exit
