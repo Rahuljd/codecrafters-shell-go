@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +11,66 @@ import (
 
 	"github.com/chzyer/readline"
 )
+
+// getPathExecutables returns all executables found in PATH directories
+func getPathExecutables() map[string]bool {
+	executables := make(map[string]bool)
+	pathEnv := os.Getenv("PATH")
+	if pathEnv == "" {
+		return executables
+	}
+
+	// Split PATH by the system path separator
+	var separator string
+	if os.PathSeparator == '\\' {
+		separator = ";"
+	} else {
+		separator = ":"
+	}
+
+	dirs := strings.Split(pathEnv, separator)
+
+	for _, dir := range dirs {
+		// Skip non-existent directories gracefully
+		files, err := ioutil.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+
+		for _, file := range files {
+			if file.IsDir() {
+				continue
+			}
+
+			// On Unix-like systems, check if executable
+			// On Windows, .exe files are executable by extension
+			info := file.Mode()
+			isExecutable := false
+
+			if os.PathSeparator == '\\' {
+				// Windows: check for executable extensions
+				name := file.Name()
+				if strings.HasSuffix(strings.ToLower(name), ".exe") ||
+					strings.HasSuffix(strings.ToLower(name), ".bat") ||
+					strings.HasSuffix(strings.ToLower(name), ".cmd") ||
+					strings.HasSuffix(strings.ToLower(name), ".com") {
+					isExecutable = true
+				}
+			} else {
+				// Unix: check execute bit
+				if (info & 0111) != 0 {
+					isExecutable = true
+				}
+			}
+
+			if isExecutable {
+				executables[file.Name()] = true
+			}
+		}
+	}
+
+	return executables
+}
 
 type BellCompleter struct {
 	baseCompleter readline.AutoCompleter
@@ -20,9 +81,38 @@ func (b *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) 
 	// Call the base completer
 	newLine, length = b.baseCompleter.Do(line, pos)
 
-	// If no completions found, ring the bell
+	// If no completions found, check PATH executables
 	if len(newLine) == 0 {
-		fmt.Print("\x07") // Bell character
+		lineStr := string(line)
+		parts := strings.Fields(lineStr)
+		if len(parts) > 0 {
+			prefix := parts[0]
+
+			// Get executables from PATH
+			pathExecs := getPathExecutables()
+
+			// Find matching executables
+			var matches []string
+			for exec := range pathExecs {
+				if strings.HasPrefix(exec, prefix) {
+					matches = append(matches, exec)
+				}
+			}
+
+			// Convert matches to readline format
+			if len(matches) > 0 {
+				for _, match := range matches {
+					newLine = append(newLine, []rune(match))
+				}
+				length = len(prefix)
+			} else {
+				// No matches at all, ring the bell
+				fmt.Print("\x07")
+			}
+		} else {
+			// Empty input, ring the bell
+			fmt.Print("\x07")
+		}
 	}
 
 	return newLine, length
