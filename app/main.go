@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/chzyer/readline"
@@ -14,12 +13,6 @@ import (
 
 // executableCache stores found executables to avoid repeated filesystem calls
 var executableCache map[string]bool
-
-// completionState tracks the last completion attempt for multiple match handling
-var completionState struct {
-	lastPrefix string
-	matches    []string
-}
 
 // isExecAny checks if a file has execute permissions
 func isExecAny(mode os.FileMode) bool {
@@ -78,6 +71,36 @@ func getPathExecutables() map[string]bool {
 type BellCompleter struct {
 }
 
+// findLongestCommonPrefix finds the longest common prefix of all strings in the list
+func findLongestCommonPrefix(matches []string) string {
+	if len(matches) == 0 {
+		return ""
+	}
+	if len(matches) == 1 {
+		return matches[0]
+	}
+
+	// Find the shortest string to limit the search
+	minLen := len(matches[0])
+	for _, m := range matches[1:] {
+		if len(m) < minLen {
+			minLen = len(m)
+		}
+	}
+
+	// Find common prefix character by character
+	for i := 0; i < minLen; i++ {
+		char := matches[0][i]
+		for _, m := range matches[1:] {
+			if m[i] != char {
+				return matches[0][:i]
+			}
+		}
+	}
+
+	return matches[0][:minLen]
+}
+
 // Do implements the readline.AutoCompleter interface
 func (b *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) {
 	lineStr := string(line[:pos])
@@ -96,8 +119,6 @@ func (b *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) 
 
 	if prefix == "" {
 		fmt.Print("\x07") // Bell for empty input
-		completionState.lastPrefix = ""
-		completionState.matches = nil
 		return [][]rune{}, 0
 	}
 
@@ -124,53 +145,30 @@ func (b *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) 
 	// If still no matches, ring the bell
 	if len(matches) == 0 {
 		fmt.Print("\x07")
-		completionState.lastPrefix = ""
-		completionState.matches = nil
 		return [][]rune{}, 0
 	}
 
-	// Handle multiple matches
-	if len(matches) > 1 {
-		// Check if this is a repeated TAB press on the same prefix
-		if completionState.lastPrefix == prefix && len(completionState.matches) > 1 {
-			// Second TAB press: print all matches
-			sort.Strings(matches)
-			fmt.Println()
-			for i, match := range matches {
-				if i > 0 {
-					fmt.Print("  ") // Two spaces between matches
-				}
-				fmt.Print(match)
-			}
-			fmt.Println()
+	// Single match: complete it with trailing space
+	if len(matches) == 1 {
+		match := matches[0]
+		suffix := strings.TrimPrefix(match, prefix)
+		newLine = append(newLine, []rune(suffix+" "))
+		length = len(prefix)
+		return newLine, length
+	}
 
-			// Show prompt again with original prefix
-			fmt.Print("$ " + prefix)
+	// Multiple matches: find the longest common prefix and complete to that
+	lcp := findLongestCommonPrefix(matches)
 
-			// Return empty to prevent readline from doing its own completion
-			completionState.lastPrefix = ""
-			completionState.matches = nil
-			return [][]rune{}, 0
-		}
-
-		// First TAB press on multiple matches: ring the bell
+	// If LCP is the same as current prefix, ring the bell (no progress can be made)
+	if lcp == prefix {
 		fmt.Print("\x07")
-		completionState.lastPrefix = prefix
-		completionState.matches = matches
 		return [][]rune{}, 0
 	}
 
-	// Single match: complete it
-	// Return only the SUFFIX after the prefix (readline will delete the prefix using length parameter)
-	match := matches[0]
-	suffix := strings.TrimPrefix(match, prefix)
-	newLine = append(newLine, []rune(suffix+" "))
-
-	// Reset state for single match completion
-	completionState.lastPrefix = ""
-	completionState.matches = nil
-
-	// Return length of prefix to delete from line
+	// Complete to the LCP
+	suffix := strings.TrimPrefix(lcp, prefix)
+	newLine = append(newLine, []rune(suffix))
 	length = len(prefix)
 	return newLine, length
 }
