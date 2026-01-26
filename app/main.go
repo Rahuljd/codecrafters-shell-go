@@ -88,14 +88,23 @@ func (b *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) 
 
 	// No builtin matches, check PATH executables
 	lineStr := string(line[:pos])
-	parts := strings.Fields(lineStr)
 
-	if len(parts) == 0 {
+	// Find the start of the current word (first word, since we're completing commands)
+	// by finding the last space or the beginning of the line
+	wordStart := 0
+	for i := len(lineStr) - 1; i >= 0; i-- {
+		if lineStr[i] == ' ' {
+			wordStart = i + 1
+			break
+		}
+	}
+
+	prefix := strings.TrimSpace(lineStr[wordStart:])
+
+	if prefix == "" {
 		fmt.Print("\x07") // Bell for empty input
 		return [][]rune{}, 0
 	}
-
-	prefix := parts[0]
 
 	// Get executables from PATH
 	pathExecs := getPathExecutables()
@@ -119,7 +128,8 @@ func (b *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) 
 	}
 
 	// Return length of prefix to replace
-	length = len(prefix)
+	// This should be the number of characters from the current position backward
+	length = pos - wordStart
 	return newLine, length
 }
 
