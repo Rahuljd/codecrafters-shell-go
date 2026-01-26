@@ -7,6 +7,9 @@ import (
 	"github.com/chzyer/readline"
 )
 
+// shouldExit is a flag to signal that the shell should exit
+var shouldExit = false
+
 func main() {
 	shell := &Shell{}
 
@@ -67,6 +70,11 @@ func main() {
 			cmd := args[0]
 			cmdArgs := args[1:]
 			shell.ExecuteCommand(cmd, cmdArgs)
+		}
+
+		// Check if we should exit
+		if shouldExit {
+			break
 		}
 	}
 }

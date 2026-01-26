@@ -125,7 +125,8 @@ func (s *Shell) ExecuteCommandWithIO(cmd string, args []string, stdoutWriter, st
 func (s *Shell) ExecuteCommandWithIOAndStdin(cmd string, args []string, stdinReader io.Reader, stdoutWriter, stderrWriter io.Writer) {
 	switch cmd {
 	case "exit":
-		os.Exit(0)
+		shouldExit = true
+		return
 	case "echo":
 		fmt.Fprintln(stdoutWriter, strings.Join(args, " "))
 	case "type":
