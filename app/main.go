@@ -14,6 +14,9 @@ import (
 // executableCache stores found executables to avoid repeated filesystem calls
 var executableCache map[string]bool
 
+// commandHistory stores all executed commands
+var commandHistory []string
+
 // completionState tracks the last completion attempt for multi-match listing
 var completionState struct {
 	lastPrefix string
@@ -242,7 +245,7 @@ type Shell struct {
 }
 
 var Builtins = map[string]bool{
-	"exit": true, "echo": true, "type": true, "cd": true, "pwd": true,
+	"exit": true, "echo": true, "type": true, "cd": true, "pwd": true, "history": true,
 }
 
 func InputParser(input string) (string, []string) {
@@ -342,6 +345,9 @@ func main() {
 		if len(args) == 0 {
 			continue
 		}
+
+		// Add command to history
+		commandHistory = append(commandHistory, input)
 
 		// Check for pipe operators
 		pipeIndices := []int{}
@@ -453,7 +459,7 @@ func (s *Shell) ExecuteCommand(cmd string, args []string) {
 
 // isBuiltin checks if a command is a shell built-in
 func isBuiltin(cmd string) bool {
-	builtins := []string{"exit", "echo", "type", "pwd", "cd"}
+	builtins := []string{"exit", "echo", "type", "pwd", "cd", "history"}
 	for _, b := range builtins {
 		if cmd == b {
 			return true
@@ -511,6 +517,10 @@ func (s *Shell) ExecuteCommandWithIOAndStdin(cmd string, args []string, stdinRea
 		}
 		if err := os.Chdir(dir); err != nil {
 			fmt.Fprintf(stderrWriter, "cd: %s: No such file or directory\n", dir)
+		}
+	case "history":
+		for i, cmd := range commandHistory {
+			fmt.Fprintf(stdoutWriter, "    %d  %s\n", i+1, cmd)
 		}
 	default:
 		s.ExecuteExternalCommand(cmd, args, stdoutWriter, stderrWriter)
