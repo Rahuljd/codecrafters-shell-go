@@ -14,6 +14,12 @@ import (
 // executableCache stores found executables to avoid repeated filesystem calls
 var executableCache map[string]bool
 
+// completionState tracks the last completion attempt for multi-match listing
+var completionState struct {
+	lastPrefix string
+	matches    []string
+}
+
 // isExecAny checks if a file has execute permissions
 func isExecAny(mode os.FileMode) bool {
 	return mode.Perm()&0111 != 0
@@ -119,6 +125,8 @@ func (b *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) 
 
 	if prefix == "" {
 		fmt.Print("\x07") // Bell for empty input
+		completionState.lastPrefix = ""
+		completionState.matches = nil
 		return [][]rune{}, 0
 	}
 
@@ -145,6 +153,8 @@ func (b *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) 
 	// If still no matches, ring the bell
 	if len(matches) == 0 {
 		fmt.Print("\x07")
+		completionState.lastPrefix = ""
+		completionState.matches = nil
 		return [][]rune{}, 0
 	}
 
@@ -153,22 +163,62 @@ func (b *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) 
 		match := matches[0]
 		suffix := strings.TrimPrefix(match, prefix)
 		newLine = append(newLine, []rune(suffix+" "))
+		completionState.lastPrefix = ""
+		completionState.matches = nil
 		length = len(prefix)
 		return newLine, length
 	}
 
-	// Multiple matches: find the longest common prefix and complete to that
+	// Multiple matches: find the longest common prefix
 	lcp := findLongestCommonPrefix(matches)
 
-	// If LCP is the same as current prefix, ring the bell (no progress can be made)
+	// If LCP equals the current prefix (no progress can be made with LCP)
 	if lcp == prefix {
+		// Check if this is a repeated TAB press on the same prefix
+		if completionState.lastPrefix == prefix && len(completionState.matches) > 0 {
+			// Second TAB press: print all matches in alphabetical order
+			sortedMatches := make([]string, len(matches))
+			copy(sortedMatches, matches)
+
+			// Sort matches alphabetically
+			for i := 0; i < len(sortedMatches); i++ {
+				for j := i + 1; j < len(sortedMatches); j++ {
+					if sortedMatches[j] < sortedMatches[i] {
+						sortedMatches[i], sortedMatches[j] = sortedMatches[j], sortedMatches[i]
+					}
+				}
+			}
+
+			fmt.Println()
+			for i, match := range sortedMatches {
+				if i > 0 {
+					fmt.Print("  ") // Two spaces between matches
+				}
+				fmt.Print(match)
+			}
+			fmt.Println()
+
+			// Show prompt again with original prefix
+			fmt.Print("$ " + prefix)
+
+			// Return empty to prevent readline from doing its own completion
+			completionState.lastPrefix = ""
+			completionState.matches = nil
+			return [][]rune{}, 0
+		}
+
+		// First TAB press on multiple matches with no LCP progress: ring the bell
 		fmt.Print("\x07")
+		completionState.lastPrefix = prefix
+		completionState.matches = matches
 		return [][]rune{}, 0
 	}
 
-	// Complete to the LCP
+	// Multiple matches with LCP progress: complete to the LCP
 	suffix := strings.TrimPrefix(lcp, prefix)
 	newLine = append(newLine, []rune(suffix))
+	completionState.lastPrefix = ""
+	completionState.matches = nil
 	length = len(prefix)
 	return newLine, length
 }
