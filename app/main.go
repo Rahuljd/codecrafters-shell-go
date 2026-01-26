@@ -78,10 +78,18 @@ type BellCompleter struct {
 
 // Do implements the readline.AutoCompleter interface
 func (b *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) {
-	lineStr := string(line[:pos])
+	// First try the base completer for builtins
+	newLine, length = b.baseCompleter.Do(line, pos)
 
-	// Get the command (first word)
+	// If builtins found matches, use them
+	if len(newLine) > 0 {
+		return newLine, length
+	}
+
+	// No builtin matches, check PATH executables
+	lineStr := string(line[:pos])
 	parts := strings.Fields(lineStr)
+
 	if len(parts) == 0 {
 		fmt.Print("\x07") // Bell for empty input
 		return [][]rune{}, 0
@@ -89,23 +97,13 @@ func (b *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) 
 
 	prefix := parts[0]
 
-	// First check builtins
-	builtins := []string{"exit", "echo", "type", "pwd", "cd"}
+	// Get executables from PATH
+	pathExecs := getPathExecutables()
 	var matches []string
 
-	for _, cmd := range builtins {
-		if strings.HasPrefix(cmd, prefix) {
-			matches = append(matches, cmd)
-		}
-	}
-
-	// If no builtins matched, check PATH executables
-	if len(matches) == 0 {
-		pathExecs := getPathExecutables()
-		for exec := range pathExecs {
-			if strings.HasPrefix(exec, prefix) {
-				matches = append(matches, exec)
-			}
+	for exec := range pathExecs {
+		if strings.HasPrefix(exec, prefix) {
+			matches = append(matches, exec)
 		}
 	}
 
