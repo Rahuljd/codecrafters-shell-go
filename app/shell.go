@@ -185,9 +185,9 @@ func (s *Shell) ExecuteCommandWithIOAndStdin(cmd string, args []string, stdinRea
 				fmt.Fprintf(stderrWriter, "history: %v\n", err)
 				return
 			}
-			// Restore the history -r command that was just added in main.go
+			// Prepend the history -r command so it appears as the first entry
 			if currentCmd != "" {
-				AddToHistory(currentCmd)
+				PrependToHistory(currentCmd)
 			}
 			return
 		}

@@ -13,6 +13,11 @@ func AddToHistory(cmd string) {
 	commandHistory = append(commandHistory, cmd)
 }
 
+// PrependToHistory adds a command to the beginning of history
+func PrependToHistory(cmd string) {
+	commandHistory = append([]string{cmd}, commandHistory...)
+}
+
 // GetHistory returns the entire command history
 func GetHistory() []string {
 	return commandHistory
