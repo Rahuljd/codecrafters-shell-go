@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/chzyer/readline"
@@ -13,6 +14,12 @@ import (
 
 // executableCache stores found executables to avoid repeated filesystem calls
 var executableCache map[string]bool
+
+// completionState tracks the last completion attempt for multiple match handling
+var completionState struct {
+	lastPrefix string
+	matches    []string
+}
 
 // isExecAny checks if a file has execute permissions
 func isExecAny(mode os.FileMode) bool {
@@ -89,6 +96,8 @@ func (b *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) 
 
 	if prefix == "" {
 		fmt.Print("\x07") // Bell for empty input
+		completionState.lastPrefix = ""
+		completionState.matches = nil
 		return [][]rune{}, 0
 	}
 
@@ -115,20 +124,51 @@ func (b *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) 
 	// If still no matches, ring the bell
 	if len(matches) == 0 {
 		fmt.Print("\x07")
+		completionState.lastPrefix = ""
+		completionState.matches = nil
 		return [][]rune{}, 0
 	}
 
-	// Convert matches to readline format
-	// Return only the SUFFIX after the prefix (readline will delete the prefix using length parameter)
-	for _, match := range matches {
-		suffix := strings.TrimPrefix(match, prefix)
-		// Add space if it's a single match
-		if len(matches) == 1 {
-			newLine = append(newLine, []rune(suffix+" "))
-		} else {
-			newLine = append(newLine, []rune(suffix))
+	// Handle multiple matches
+	if len(matches) > 1 {
+		// Check if this is a repeated TAB press on the same prefix
+		if completionState.lastPrefix == prefix && len(completionState.matches) > 1 {
+			// Second TAB press: print all matches
+			sort.Strings(matches)
+			fmt.Println()
+			for i, match := range matches {
+				if i > 0 {
+					fmt.Print("  ") // Two spaces between matches
+				}
+				fmt.Print(match)
+			}
+			fmt.Println()
+
+			// Show prompt again with original prefix
+			fmt.Print("$ " + prefix)
+
+			// Return empty to prevent readline from doing its own completion
+			completionState.lastPrefix = ""
+			completionState.matches = nil
+			return [][]rune{}, 0
 		}
+
+		// First TAB press on multiple matches: ring the bell
+		fmt.Print("\x07")
+		completionState.lastPrefix = prefix
+		completionState.matches = matches
+		return [][]rune{}, 0
 	}
+
+	// Single match: complete it
+	// Return only the SUFFIX after the prefix (readline will delete the prefix using length parameter)
+	match := matches[0]
+	suffix := strings.TrimPrefix(match, prefix)
+	newLine = append(newLine, []rune(suffix+" "))
+
+	// Reset state for single match completion
+	completionState.lastPrefix = ""
+	completionState.matches = nil
 
 	// Return length of prefix to delete from line
 	length = len(prefix)
