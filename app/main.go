@@ -348,9 +348,8 @@ func runExternal(command string, args []string, stdout, stderr *os.File) {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = stdout
 
-	// ⭐ KEY FIX ⭐
 	if stderr == nil {
-		cmd.Stderr = os.Stdout
+		cmd.Stderr = stdout
 	} else {
 		cmd.Stderr = stderr
 	}
