@@ -343,10 +343,24 @@ func main() {
 			continue
 		}
 
-		cmd := args[0]
-		cmdArgs := args[1:]
+		// Check for pipe operator
+		pipeIndex := -1
+		for i, arg := range args {
+			if arg == "|" {
+				pipeIndex = i
+				break
+			}
+		}
 
-		shell.ExecuteCommand(cmd, cmdArgs)
+		if pipeIndex != -1 {
+			// Execute pipeline
+			shell.ExecutePipeline(args, pipeIndex)
+		} else {
+			// Execute single command
+			cmd := args[0]
+			cmdArgs := args[1:]
+			shell.ExecuteCommand(cmd, cmdArgs)
+		}
 	}
 }
 
@@ -496,4 +510,60 @@ func (s *Shell) ExecuteExternalCommand(cmd string, args []string, stdoutWriter, 
 	command.Stderr = stderrWriter
 
 	_ = command.Run()
+}
+
+func (s *Shell) ExecutePipeline(args []string, pipeIndex int) {
+	// Split args at pipe: [cmd1 args...] | [cmd2 args...]
+	cmd1Args := args[:pipeIndex]
+	cmd2Args := args[pipeIndex+1:]
+
+	if len(cmd1Args) == 0 || len(cmd2Args) == 0 {
+		fmt.Fprintf(os.Stderr, "error: invalid pipeline\n")
+		return
+	}
+
+	cmd1 := cmd1Args[0]
+	cmd1Opts := cmd1Args[1:]
+
+	cmd2 := cmd2Args[0]
+	cmd2Opts := cmd2Args[1:]
+
+	// Create a pipe
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: failed to create pipe: %v\n", err)
+		return
+	}
+	defer reader.Close()
+	defer writer.Close()
+
+	// Create first command: output goes to pipe
+	command1 := exec.Command(cmd1, cmd1Opts...)
+	command1.Stdin = os.Stdin
+	command1.Stdout = writer
+	command1.Stderr = os.Stderr
+
+	// Create second command: input comes from pipe
+	command2 := exec.Command(cmd2, cmd2Opts...)
+	command2.Stdin = reader
+	command2.Stdout = os.Stdout
+	command2.Stderr = os.Stderr
+
+	// Start both commands
+	if err := command1.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "%s: command not found\n", cmd1)
+		return
+	}
+
+	if err := command2.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "%s: command not found\n", cmd2)
+		return
+	}
+
+	// Close writer in parent process so command2 gets EOF when command1 finishes
+	writer.Close()
+
+	// Wait for both commands to complete
+	_ = command1.Wait()
+	_ = command2.Wait()
 }
