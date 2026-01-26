@@ -182,6 +182,21 @@ func (s *Shell) ExecuteCommandWithIOAndStdin(cmd string, args []string, stdinRea
 			return
 		}
 
+		// Handle history -a <path> to append new commands to file
+		if len(args) > 0 && args[0] == "-a" {
+			if len(args) < 2 {
+				fmt.Fprintf(stderrWriter, "history: -a requires a path\n")
+				return
+			}
+			filePath := args[1]
+			// Append new commands to history file (includes the history -a command itself since it was already added to history)
+			err := AppendHistoryToFile(filePath)
+			if err != nil {
+				fmt.Fprintf(stderrWriter, "history: %v\n", err)
+			}
+			return
+		}
+
 		// Handle history -r <path> to read from file
 		if len(args) > 0 && args[0] == "-r" {
 			if len(args) < 2 {
