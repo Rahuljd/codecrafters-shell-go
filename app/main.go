@@ -520,6 +520,30 @@ func (s *Shell) ExecuteCommandWithIOAndStdin(cmd string, args []string, stdinRea
 			fmt.Fprintf(stderrWriter, "cd: %s: No such file or directory\n", dir)
 		}
 	case "history":
+		// Handle history -r <path> to read from file
+		if len(args) > 0 && args[0] == "-r" {
+			if len(args) < 2 {
+				fmt.Fprintf(stderrWriter, "history: -r requires a path\n")
+				return
+			}
+			filePath := args[1]
+			data, err := os.ReadFile(filePath)
+			if err != nil {
+				fmt.Fprintf(stderrWriter, "history: %v\n", err)
+				return
+			}
+			// Clear current history and load from file
+			commandHistory = []string{}
+			lines := strings.Split(string(data), "\n")
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if line != "" {
+					commandHistory = append(commandHistory, line)
+				}
+			}
+			return
+		}
+
 		// Display history, optionally limited to last n entries
 		var displayCount int
 		if len(args) > 0 {
