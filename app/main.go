@@ -449,21 +449,42 @@ func (s *Shell) ExecuteCommand(cmd string, args []string) {
 		stderrWriter = f
 	}
 
+	s.ExecuteCommandWithIO(cmd, cleanArgs, stdoutWriter, stderrWriter)
+}
+
+// isBuiltin checks if a command is a shell built-in
+func isBuiltin(cmd string) bool {
+	builtins := []string{"exit", "echo", "type", "pwd", "cd"}
+	for _, b := range builtins {
+		if cmd == b {
+			return true
+		}
+	}
+	return false
+}
+
+// ExecuteCommandWithIO executes a command with custom stdout/stderr writers and optional stdin
+func (s *Shell) ExecuteCommandWithIO(cmd string, args []string, stdoutWriter, stderrWriter io.Writer) {
+	s.ExecuteCommandWithIOAndStdin(cmd, args, os.Stdin, stdoutWriter, stderrWriter)
+}
+
+// ExecuteCommandWithIOAndStdin executes a command with custom stdin/stdout/stderr writers
+func (s *Shell) ExecuteCommandWithIOAndStdin(cmd string, args []string, stdinReader io.Reader, stdoutWriter, stderrWriter io.Writer) {
 	switch cmd {
 	case "exit":
 		os.Exit(0)
 	case "echo":
-		fmt.Fprintln(stdoutWriter, strings.Join(cleanArgs, " "))
+		fmt.Fprintln(stdoutWriter, strings.Join(args, " "))
 	case "type":
-		if len(cleanArgs) == 0 {
+		if len(args) == 0 {
 			return
 		}
-		if Builtins[cleanArgs[0]] {
-			fmt.Fprintf(stdoutWriter, "%s is a shell builtin\n", cleanArgs[0])
-		} else if path, err := exec.LookPath(cleanArgs[0]); err == nil {
-			fmt.Fprintf(stdoutWriter, "%s is %s\n", cleanArgs[0], path)
+		if Builtins[args[0]] {
+			fmt.Fprintf(stdoutWriter, "%s is a shell builtin\n", args[0])
+		} else if path, err := exec.LookPath(args[0]); err == nil {
+			fmt.Fprintf(stdoutWriter, "%s is %s\n", args[0], path)
 		} else {
-			fmt.Fprintf(stderrWriter, "%s: not found\n", cleanArgs[0])
+			fmt.Fprintf(stderrWriter, "%s: not found\n", args[0])
 		}
 	case "pwd":
 		cwd, err := os.Getwd()
@@ -473,10 +494,10 @@ func (s *Shell) ExecuteCommand(cmd string, args []string) {
 			fmt.Fprintln(stdoutWriter, cwd)
 		}
 	case "cd":
-		if len(cleanArgs) == 0 {
+		if len(args) == 0 {
 			return
 		}
-		dir := cleanArgs[0]
+		dir := args[0]
 		if dir == "~" || strings.HasPrefix(dir, "~/") {
 			home, err := os.UserHomeDir()
 			if err != nil {
@@ -493,7 +514,7 @@ func (s *Shell) ExecuteCommand(cmd string, args []string) {
 			fmt.Fprintf(stderrWriter, "cd: %s: No such file or directory\n", dir)
 		}
 	default:
-		s.ExecuteExternalCommand(cmd, cleanArgs, stdoutWriter, stderrWriter)
+		s.ExecuteExternalCommand(cmd, args, stdoutWriter, stderrWriter)
 	}
 }
 
@@ -534,36 +555,53 @@ func (s *Shell) ExecutePipeline(args []string, pipeIndex int) {
 		fmt.Fprintf(os.Stderr, "error: failed to create pipe: %v\n", err)
 		return
 	}
-	defer reader.Close()
-	defer writer.Close()
 
-	// Create first command: output goes to pipe
-	command1 := exec.Command(cmd1, cmd1Opts...)
-	command1.Stdin = os.Stdin
-	command1.Stdout = writer
-	command1.Stderr = os.Stderr
+	// Handle first command (can be built-in or external)
+	if isBuiltin(cmd1) {
+		// For built-in commands, execute them directly with the pipe writer as stdout
+		s.ExecuteCommandWithIOAndStdin(cmd1, cmd1Opts, os.Stdin, writer, os.Stderr)
+		writer.Close()
+	} else {
+		// For external commands, create a process
+		command1 := exec.Command(cmd1, cmd1Opts...)
+		command1.Stdin = os.Stdin
+		command1.Stdout = writer
+		command1.Stderr = os.Stderr
 
-	// Create second command: input comes from pipe
-	command2 := exec.Command(cmd2, cmd2Opts...)
-	command2.Stdin = reader
-	command2.Stdout = os.Stdout
-	command2.Stderr = os.Stderr
+		if err := command1.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "%s: command not found\n", cmd1)
+			writer.Close()
+			reader.Close()
+			return
+		}
 
-	// Start both commands
-	if err := command1.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "%s: command not found\n", cmd1)
-		return
+		// Close writer in parent process
+		writer.Close()
+
+		// Wait for command1 to finish before starting command2
+		_ = command1.Wait()
 	}
 
-	if err := command2.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "%s: command not found\n", cmd2)
-		return
+	// Handle second command (can be built-in or external)
+	if isBuiltin(cmd2) {
+		// For built-in commands, execute them with the pipe reader as stdin
+		s.ExecuteCommandWithIOAndStdin(cmd2, cmd2Opts, reader, os.Stdout, os.Stderr)
+		reader.Close()
+	} else {
+		// For external commands, create a process
+		command2 := exec.Command(cmd2, cmd2Opts...)
+		command2.Stdin = reader
+		command2.Stdout = os.Stdout
+		command2.Stderr = os.Stderr
+
+		if err := command2.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "%s: command not found\n", cmd2)
+			reader.Close()
+			return
+		}
+
+		// Wait for command2 to finish
+		_ = command2.Wait()
+		reader.Close()
 	}
-
-	// Close writer in parent process so command2 gets EOF when command1 finishes
-	writer.Close()
-
-	// Wait for both commands to complete
-	_ = command1.Wait()
-	_ = command2.Wait()
 }
