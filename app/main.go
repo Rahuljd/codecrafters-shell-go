@@ -119,19 +119,19 @@ func (b *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) 
 	}
 
 	// Convert matches to readline format
-	// When there's a single match, readline will add trailing space automatically
+	// Return only the SUFFIX after the prefix (readline will delete the prefix using length parameter)
 	for _, match := range matches {
+		suffix := strings.TrimPrefix(match, prefix)
 		// Add space if it's a single match
 		if len(matches) == 1 {
-			newLine = append(newLine, []rune(match+" "))
+			newLine = append(newLine, []rune(suffix+" "))
 		} else {
-			newLine = append(newLine, []rune(match))
+			newLine = append(newLine, []rune(suffix))
 		}
 	}
 
-	// Return length of prefix to delete
-	// pos - wordStart = how many chars from wordStart to cursor
-	length = pos - wordStart
+	// Return length of prefix to delete from line
+	length = len(prefix)
 	return newLine, length
 }
 
