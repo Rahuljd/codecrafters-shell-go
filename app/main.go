@@ -276,6 +276,12 @@ func (s *Shell) ExecuteCommand(cmd string, args []string) {
 }
 
 func (s *Shell) ExecuteExternalCommand(cmd string, args []string, stdoutWriter, stderrWriter io.Writer) {
+	// Check if command exists first
+	if _, err := exec.LookPath(cmd); err != nil {
+		fmt.Fprintf(stderrWriter, "%s: command not found\n", cmd)
+		return
+	}
+
 	command := exec.Command(cmd, args...)
 	command.Stdin = os.Stdin
 	command.Stdout = stdoutWriter
