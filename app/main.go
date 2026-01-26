@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,64 +11,61 @@ import (
 	"github.com/chzyer/readline"
 )
 
-// getPathExecutables returns all executables found in PATH directories
-func getPathExecutables() map[string]bool {
-	executables := make(map[string]bool)
-	pathEnv := os.Getenv("PATH")
-	if pathEnv == "" {
-		return executables
-	}
+// executableCache stores found executables to avoid repeated filesystem calls
+var executableCache map[string]bool
 
-	// Split PATH by the system path separator
-	var separator string
-	if os.PathSeparator == '\\' {
-		separator = ";"
-	} else {
-		separator = ":"
-	}
+// isExecAny checks if a file has execute permissions
+func isExecAny(mode os.FileMode) bool {
+	return mode.Perm()&0111 != 0
+}
 
-	dirs := strings.Split(pathEnv, separator)
+// findAllExes searches PATH for all executable files
+func findAllExes() {
+	executableCache = make(map[string]bool)
+	paths := strings.Split(os.Getenv("PATH"), string(os.PathListSeparator))
 
-	for _, dir := range dirs {
-		// Skip non-existent directories gracefully
-		files, err := ioutil.ReadDir(dir)
+	for _, p := range paths {
+		entries, err := os.ReadDir(p)
 		if err != nil {
 			continue
 		}
 
-		for _, file := range files {
-			if file.IsDir() {
-				continue
-			}
-
-			// On Unix-like systems, check if executable
-			// On Windows, .exe files are executable by extension
-			info := file.Mode()
-			isExecutable := false
-
-			if os.PathSeparator == '\\' {
-				// Windows: check for executable extensions
-				name := file.Name()
-				if strings.HasSuffix(strings.ToLower(name), ".exe") ||
-					strings.HasSuffix(strings.ToLower(name), ".bat") ||
-					strings.HasSuffix(strings.ToLower(name), ".cmd") ||
-					strings.HasSuffix(strings.ToLower(name), ".com") {
-					isExecutable = true
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				info, err := entry.Info()
+				if err != nil {
+					continue
 				}
-			} else {
-				// Unix: check execute bit
-				if (info & 0111) != 0 {
-					isExecutable = true
-				}
-			}
 
-			if isExecutable {
-				executables[file.Name()] = true
+				// On Windows, also check for .exe, .bat, .cmd, .com extensions
+				isExecutable := false
+				if os.PathSeparator == '\\' {
+					name := strings.ToLower(entry.Name())
+					if strings.HasSuffix(name, ".exe") ||
+						strings.HasSuffix(name, ".bat") ||
+						strings.HasSuffix(name, ".cmd") ||
+						strings.HasSuffix(name, ".com") {
+						isExecutable = true
+					}
+				} else {
+					// Unix: check execute bit
+					isExecutable = isExecAny(info.Mode())
+				}
+
+				if isExecutable {
+					executableCache[entry.Name()] = true
+				}
 			}
 		}
 	}
+}
 
-	return executables
+// getPathExecutables returns all executables found in PATH directories
+func getPathExecutables() map[string]bool {
+	if executableCache == nil {
+		findAllExes()
+	}
+	return executableCache
 }
 
 type BellCompleter struct {
