@@ -104,8 +104,8 @@ func processCommand(input string) {
 
 	cmd := words[0]
 	args := words[1:]
-	args, outFile, appendMode := extractStdoutRedirection(args)
 	args, errFile, errAppend := extractStderrRedirection(args)
+	args, outFile, appendMode := extractStdoutRedirection(args)
 	origStdout := os.Stdout
 	origStderr := os.Stderr
 
@@ -175,8 +175,6 @@ func processCommand(input string) {
 		}
 		fmt.Println(dir)
 	case "exit":
-		os.Stdout = origStdout
-		os.Stderr = origStderr
 		os.Exit(0)
 	case "echo":
 		fmt.Println(strings.Join(args, " "))
