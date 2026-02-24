@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 )
 
@@ -84,6 +85,19 @@ func (b *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) 
 		for exec := range pathExecs {
 			if strings.HasPrefix(exec, prefix) {
 				matches = append(matches, exec)
+			}
+		}
+	}
+
+	// If still no matches, check files in current directory (filename completion)
+	if len(matches) == 0 {
+		entries, err := os.ReadDir(".")
+		if err == nil {
+			for _, e := range entries {
+				name := e.Name()
+				if strings.HasPrefix(name, prefix) {
+					matches = append(matches, name)
+				}
 			}
 		}
 	}
