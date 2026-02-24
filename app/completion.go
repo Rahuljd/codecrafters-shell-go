@@ -89,6 +89,43 @@ func (b *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) 
 		}
 	}
 
+	// If the prefix contains a slash, attempt path completion in the specified directory
+	if len(matches) == 0 && strings.Contains(prefix, "/") {
+		// split at last '/'
+		last := strings.LastIndex(prefix, "/")
+		dirPath := prefix[:last+1] // includes trailing '/'
+		namePrefix := prefix[last+1:]
+
+		// Read the target directory (relative to current working directory)
+		entries, err := os.ReadDir(dirPath)
+		if err == nil {
+			var dirMatches []string
+			for _, e := range entries {
+				name := e.Name()
+				if strings.HasPrefix(name, namePrefix) {
+					// full path to match
+					dirMatches = append(dirMatches, dirPath+name)
+				}
+			}
+
+			if len(dirMatches) == 1 {
+				// Single match: complete the full path and add trailing space
+				match := dirMatches[0]
+				suffix := strings.TrimPrefix(match, prefix)
+				newLine = append(newLine, []rune(suffix+" "))
+				completionState.lastPrefix = ""
+				completionState.matches = nil
+				length = len(prefix)
+				return newLine, length
+			}
+
+			// If multiple matches, use them as 'matches' (so LCP logic can run)
+			if len(dirMatches) > 0 {
+				matches = append(matches, dirMatches...)
+			}
+		}
+	}
+
 	// If still no matches, check files in current directory (filename completion)
 	if len(matches) == 0 {
 		entries, err := os.ReadDir(".")
