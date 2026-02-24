@@ -109,10 +109,16 @@ func (b *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) 
 			}
 
 			if len(dirMatches) == 1 {
-				// Single match: complete the full path and add trailing space
+				// Single match: complete the full path. If it's a directory,
+				// append a trailing '/' (no space). Otherwise append a space.
 				match := dirMatches[0]
-				suffix := strings.TrimPrefix(match, prefix)
-				newLine = append(newLine, []rune(suffix+" "))
+				if fi, err := os.Stat(match); err == nil && fi.IsDir() {
+					suffix := strings.TrimPrefix(match, prefix)
+					newLine = append(newLine, []rune(suffix+"/"))
+				} else {
+					suffix := strings.TrimPrefix(match, prefix)
+					newLine = append(newLine, []rune(suffix+" "))
+				}
 				completionState.lastPrefix = ""
 				completionState.matches = nil
 				length = len(prefix)
@@ -147,11 +153,15 @@ func (b *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) 
 		return [][]rune{}, 0
 	}
 
-	// Single match: complete it with trailing space
+	// Single match: if it's a directory append '/', otherwise append space
 	if len(matches) == 1 {
 		match := matches[0]
 		suffix := strings.TrimPrefix(match, prefix)
-		newLine = append(newLine, []rune(suffix+" "))
+		if fi, err := os.Stat(match); err == nil && fi.IsDir() {
+			newLine = append(newLine, []rune(suffix+"/"))
+		} else {
+			newLine = append(newLine, []rune(suffix+" "))
+		}
 		completionState.lastPrefix = ""
 		completionState.matches = nil
 		length = len(prefix)
