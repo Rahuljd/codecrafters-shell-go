@@ -60,31 +60,36 @@ func (b *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) 
 		}
 	}
 
-	prefix := strings.TrimSpace(lineStr[wordStart:])
+	rawPrefix := lineStr[wordStart:]
+	// Determine if we're completing the first word (command) or an argument
+	isFirstWord := wordStart == 0
+	prefix := strings.TrimSpace(rawPrefix)
 
-	if prefix == "" {
+	// If empty prefix on first word, ring the bell and stop.
+	if prefix == "" && isFirstWord {
 		fmt.Print("\x07") // Bell for empty input
 		completionState.lastPrefix = ""
 		completionState.matches = nil
 		return [][]rune{}, 0
 	}
 
-	// First check builtins
-	builtins := []string{"exit", "echo", "type", "pwd", "cd", "history"}
+	// If completing the first word, check builtins and PATH executables
 	var matches []string
-
-	for _, cmd := range builtins {
-		if strings.HasPrefix(cmd, prefix) {
-			matches = append(matches, cmd)
+	if isFirstWord {
+		builtins := []string{"exit", "echo", "type", "pwd", "cd", "history"}
+		for _, cmd := range builtins {
+			if strings.HasPrefix(cmd, prefix) {
+				matches = append(matches, cmd)
+			}
 		}
-	}
 
-	// If no builtins matched, check PATH executables
-	if len(matches) == 0 {
-		pathExecs := getPathExecutables()
-		for exec := range pathExecs {
-			if strings.HasPrefix(exec, prefix) {
-				matches = append(matches, exec)
+		// If no builtins matched, check PATH executables
+		if len(matches) == 0 {
+			pathExecs := getPathExecutables()
+			for exec := range pathExecs {
+				if strings.HasPrefix(exec, prefix) {
+					matches = append(matches, exec)
+				}
 			}
 		}
 	}
@@ -132,14 +137,20 @@ func (b *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) 
 		}
 	}
 
-	// If still no matches, check files in current directory (filename completion)
 	if len(matches) == 0 {
+		// When completing arguments (not the first word) and prefix is empty,
+		// we should consider all entries in the current directory.
 		entries, err := os.ReadDir(".")
 		if err == nil {
 			for _, e := range entries {
 				name := e.Name()
-				if strings.HasPrefix(name, prefix) {
+				if prefix == "" {
+					// empty prefix: include all entries
 					matches = append(matches, name)
+				} else {
+					if strings.HasPrefix(name, prefix) {
+						matches = append(matches, name)
+					}
 				}
 			}
 		}
