@@ -199,17 +199,30 @@ func (b *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) 
 				}
 			}
 
+			// Prepare display names: show basenames and append '/' for directories
+			displayNames := make([]string, 0, len(sortedMatches))
+			for _, match := range sortedMatches {
+				base := match
+				if idx := strings.LastIndex(match, "/"); idx != -1 {
+					base = match[idx+1:]
+				}
+				if fi, err := os.Stat(match); err == nil && fi.IsDir() {
+					base = base + "/"
+				}
+				displayNames = append(displayNames, base)
+			}
+
 			fmt.Println()
-			for i, match := range sortedMatches {
+			for i, name := range displayNames {
 				if i > 0 {
 					fmt.Print("  ") // Two spaces between matches
 				}
-				fmt.Print(match)
+				fmt.Print(name)
 			}
 			fmt.Println()
 
-			// Show prompt again with original prefix
-			fmt.Print("$ " + prefix)
+			// Show prompt again with original input (preserve already typed content)
+			fmt.Print("$ " + lineStr)
 
 			// Return empty to prevent readline from doing its own completion
 			completionState.lastPrefix = ""
